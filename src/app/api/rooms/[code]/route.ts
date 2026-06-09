@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { loadRoomPayload } from "@/lib/roomData";
 
-export async function GET(_request: Request, context: any) {
+type RouteContext = {
+  params: Promise<{ code: string }> | { code: string };
+};
+
+export async function GET(_request: Request, context: RouteContext) {
   try {
     const params = await Promise.resolve(context.params);
     const payload = await loadRoomPayload(params.code);

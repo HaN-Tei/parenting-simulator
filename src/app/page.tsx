@@ -45,6 +45,7 @@ export default function Home() {
   const [parentA, setParentA] = useState("");
   const [parentB, setParentB] = useState("");
   const [world, setWorld] = useState("现实向");
+  const [setupDraftDirty, setSetupDraftDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -54,9 +55,11 @@ export default function Home() {
     const savedCode = localStorage.getItem("parenting.roomCode") || "";
     const savedPlayerId = localStorage.getItem("parenting.playerId") || "";
     const savedName = localStorage.getItem("parenting.displayName") || "";
-    if (savedCode) setRoomCode(savedCode);
-    if (savedPlayerId) setPlayerId(savedPlayerId);
-    if (savedName) setDisplayName(savedName);
+    window.setTimeout(() => {
+      if (savedCode) setRoomCode(savedCode);
+      if (savedPlayerId) setPlayerId(savedPlayerId);
+      if (savedName) setDisplayName(savedName);
+    }, 0);
   }, []);
 
   useEffect(() => {
@@ -68,9 +71,11 @@ export default function Home() {
         const data = await apiGet(`/api/rooms/${activeCode}`);
         if (!cancelled && data.ok && data.payload) {
           setPayload(data.payload);
-          setParentA(data.payload.setup.parentA || "");
-          setParentB(data.payload.setup.parentB || "");
-          setWorld(data.payload.setup.world || "现实向");
+          if (!setupDraftDirty) {
+            setParentA(data.payload.setup.parentA || "");
+            setParentB(data.payload.setup.parentB || "");
+            setWorld(data.payload.setup.world || "现实向");
+          }
         }
       } catch {
         // 轮询失败时不打扰玩家，下一轮再试。
@@ -83,7 +88,7 @@ export default function Home() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeCode]);
+  }, [activeCode, setupDraftDirty]);
 
   const statusLine = useMemo(() => {
     if (!payload) return "尚未进入房间";
@@ -99,6 +104,10 @@ export default function Home() {
       const data = await apiPost("/api/rooms", { displayName });
       if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "创建失败");
       setPayload(data.payload);
+      setParentA(data.payload.setup.parentA || "");
+      setParentB(data.payload.setup.parentB || "");
+      setWorld(data.payload.setup.world || "现实向");
+      setSetupDraftDirty(false);
       setRoomCode(data.payload.room.room_code);
       setPlayerId(data.playerId);
       localStorage.setItem("parenting.roomCode", data.payload.room.room_code);
@@ -118,6 +127,10 @@ export default function Home() {
       const data = await apiPost("/api/rooms/join", { code: joinCode, displayName });
       if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "加入失败");
       setPayload(data.payload);
+      setParentA(data.payload.setup.parentA || "");
+      setParentB(data.payload.setup.parentB || "");
+      setWorld(data.payload.setup.world || "现实向");
+      setSetupDraftDirty(false);
       setRoomCode(data.payload.room.room_code);
       setPlayerId(data.playerId);
       localStorage.setItem("parenting.roomCode", data.payload.room.room_code);
@@ -138,6 +151,7 @@ export default function Home() {
       const data = await apiPost(`/api/rooms/${activeCode}/setup`, { parentA, parentB, world });
       if (!data.ok || !data.payload) throw new Error(data.error || "保存失败");
       setPayload(data.payload);
+      setSetupDraftDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -172,6 +186,10 @@ export default function Home() {
     setRoomCode("");
     setPlayerId("");
     setPayload(null);
+    setParentA("");
+    setParentB("");
+    setWorld("现实向");
+    setSetupDraftDirty(false);
   }
 
   return (
@@ -262,21 +280,30 @@ export default function Home() {
                 <textarea
                   className="mt-2 h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
                   value={parentA}
-                  onChange={(event) => setParentA(event.target.value)}
+                  onChange={(event) => {
+                    setParentA(event.target.value);
+                    setSetupDraftDirty(true);
+                  }}
                   placeholder="姓名、年龄、职业、性格、育儿观、家庭背景……"
                 />
                 <label className="mt-4 block text-sm font-medium">双亲 B 设定</label>
                 <textarea
                   className="mt-2 h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
                   value={parentB}
-                  onChange={(event) => setParentB(event.target.value)}
+                  onChange={(event) => {
+                    setParentB(event.target.value);
+                    setSetupDraftDirty(true);
+                  }}
                   placeholder="姓名、年龄、职业、性格、育儿观、家庭背景……"
                 />
                 <label className="mt-4 block text-sm font-medium">世界/家庭设定</label>
                 <textarea
                   className="mt-2 h-20 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
                   value={world}
-                  onChange={(event) => setWorld(event.target.value)}
+                  onChange={(event) => {
+                    setWorld(event.target.value);
+                    setSetupDraftDirty(true);
+                  }}
                   placeholder="现实向、轻幻想、近未来、城市、家庭资源等……"
                 />
                 <button

@@ -11,7 +11,11 @@ const messageSchema = z.object({
   content: z.string().trim().min(1).max(4000),
 });
 
-export async function POST(request: Request, context: any) {
+type RouteContext = {
+  params: Promise<{ code: string }> | { code: string };
+};
+
+export async function POST(request: Request, context: RouteContext) {
   try {
     const params = await Promise.resolve(context.params);
     const code = String(params.code).toUpperCase();

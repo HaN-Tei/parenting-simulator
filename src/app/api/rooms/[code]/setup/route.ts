@@ -9,7 +9,11 @@ const setupSchema = z.object({
   world: z.string().trim().max(2000).default("现实向"),
 });
 
-export async function POST(request: Request, context: any) {
+type RouteContext = {
+  params: Promise<{ code: string }> | { code: string };
+};
+
+export async function POST(request: Request, context: RouteContext) {
   try {
     const params = await Promise.resolve(context.params);
     const code = String(params.code).toUpperCase();
