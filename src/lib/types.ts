@@ -1,5 +1,11 @@
 export type GameSetup = {
+  parentAName?: string;
+  parentAJob?: string;
+  parentAPregnancyRole?: string;
   parentA?: string;
+  parentBName?: string;
+  parentBJob?: string;
+  parentBPregnancyRole?: string;
   parentB?: string;
   world?: string;
 };

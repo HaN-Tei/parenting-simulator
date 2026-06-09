@@ -4,7 +4,13 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadRoomPayload, addSystemMessage } from "@/lib/roomData";
 
 const setupSchema = z.object({
+  parentAName: z.string().trim().max(60).default(""),
+  parentAJob: z.string().trim().max(80).default(""),
+  parentAPregnancyRole: z.string().trim().max(20).default(""),
   parentA: z.string().trim().max(2000).default(""),
+  parentBName: z.string().trim().max(60).default(""),
+  parentBJob: z.string().trim().max(80).default(""),
+  parentBPregnancyRole: z.string().trim().max(20).default(""),
   parentB: z.string().trim().max(2000).default(""),
   world: z.string().trim().max(2000).default("现实向"),
 });

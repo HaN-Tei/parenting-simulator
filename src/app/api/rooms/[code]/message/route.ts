@@ -69,6 +69,23 @@ export async function POST(request: Request, context: RouteContext) {
       await addSystemMessage(latest.room.id, eventText, "event");
     }
 
+    if (command === "advance_story") {
+      await addSystemMessage(latest.room.id, "正在根据对话内容推进剧情……", "thinking");
+      const storyText = await callOpenRouter({
+        kind: "advance",
+        setup: latest.setup,
+        state: latest.state,
+        recentMessages: latest.messages,
+      });
+      await supabase.from("events").insert({
+        room_id: latest.room.id,
+        turn: latest.state.turn,
+        event_type: "story_advance",
+        content: storyText,
+      });
+      await addSystemMessage(latest.room.id, storyText, "story");
+    }
+
     if (command === "end_turn") {
       await addSystemMessage(latest.room.id, "正在结算本回合……", "thinking");
       const settlement = await callOpenRouter({

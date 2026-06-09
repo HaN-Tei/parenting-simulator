@@ -42,7 +42,13 @@ export default function Home() {
   const [playerId, setPlayerId] = useState("");
   const [payload, setPayload] = useState<RoomPayload | null>(null);
   const [content, setContent] = useState("");
+  const [parentAName, setParentAName] = useState("");
+  const [parentAJob, setParentAJob] = useState("");
+  const [parentAPregnancyRole, setParentAPregnancyRole] = useState("怀孕方");
   const [parentA, setParentA] = useState("");
+  const [parentBName, setParentBName] = useState("");
+  const [parentBJob, setParentBJob] = useState("");
+  const [parentBPregnancyRole, setParentBPregnancyRole] = useState("非怀孕方");
   const [parentB, setParentB] = useState("");
   const [world, setWorld] = useState("现实向");
   const [setupDraftDirty, setSetupDraftDirty] = useState(false);
@@ -50,6 +56,31 @@ export default function Home() {
   const [error, setError] = useState("");
 
   const activeCode = roomCode || payload?.room.room_code || "";
+
+  function applySetupFromPayload(nextPayload: RoomPayload) {
+    setParentAName(nextPayload.setup.parentAName || "");
+    setParentAJob(nextPayload.setup.parentAJob || "");
+    setParentAPregnancyRole(nextPayload.setup.parentAPregnancyRole || "怀孕方");
+    setParentA(nextPayload.setup.parentA || "");
+    setParentBName(nextPayload.setup.parentBName || "");
+    setParentBJob(nextPayload.setup.parentBJob || "");
+    setParentBPregnancyRole(nextPayload.setup.parentBPregnancyRole || "非怀孕方");
+    setParentB(nextPayload.setup.parentB || "");
+    setWorld(nextPayload.setup.world || "现实向");
+  }
+
+  function resetSetupDraft() {
+    setParentAName("");
+    setParentAJob("");
+    setParentAPregnancyRole("怀孕方");
+    setParentA("");
+    setParentBName("");
+    setParentBJob("");
+    setParentBPregnancyRole("非怀孕方");
+    setParentB("");
+    setWorld("现实向");
+    setSetupDraftDirty(false);
+  }
 
   useEffect(() => {
     const savedCode = localStorage.getItem("parenting.roomCode") || "";
@@ -72,9 +103,7 @@ export default function Home() {
         if (!cancelled && data.ok && data.payload) {
           setPayload(data.payload);
           if (!setupDraftDirty) {
-            setParentA(data.payload.setup.parentA || "");
-            setParentB(data.payload.setup.parentB || "");
-            setWorld(data.payload.setup.world || "现实向");
+            applySetupFromPayload(data.payload);
           }
         }
       } catch {
@@ -104,9 +133,7 @@ export default function Home() {
       const data = await apiPost("/api/rooms", { displayName });
       if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "创建失败");
       setPayload(data.payload);
-      setParentA(data.payload.setup.parentA || "");
-      setParentB(data.payload.setup.parentB || "");
-      setWorld(data.payload.setup.world || "现实向");
+      applySetupFromPayload(data.payload);
       setSetupDraftDirty(false);
       setRoomCode(data.payload.room.room_code);
       setPlayerId(data.playerId);
@@ -127,9 +154,7 @@ export default function Home() {
       const data = await apiPost("/api/rooms/join", { code: joinCode, displayName });
       if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "加入失败");
       setPayload(data.payload);
-      setParentA(data.payload.setup.parentA || "");
-      setParentB(data.payload.setup.parentB || "");
-      setWorld(data.payload.setup.world || "现实向");
+      applySetupFromPayload(data.payload);
       setSetupDraftDirty(false);
       setRoomCode(data.payload.room.room_code);
       setPlayerId(data.playerId);
@@ -148,7 +173,17 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      const data = await apiPost(`/api/rooms/${activeCode}/setup`, { parentA, parentB, world });
+      const data = await apiPost(`/api/rooms/${activeCode}/setup`, {
+        parentAName,
+        parentAJob,
+        parentAPregnancyRole,
+        parentA,
+        parentBName,
+        parentBJob,
+        parentBPregnancyRole,
+        parentB,
+        world,
+      });
       if (!data.ok || !data.payload) throw new Error(data.error || "保存失败");
       setPayload(data.payload);
       setSetupDraftDirty(false);
@@ -180,16 +215,46 @@ export default function Home() {
     }
   }
 
+  async function sendActionAndAdvance(action: string) {
+    if (!activeCode || !action.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const actionData = await apiPost(`/api/rooms/${activeCode}/message`, {
+        playerId,
+        author: displayName,
+        content: `行动选择：${action.trim()}`,
+      });
+      if (!actionData.ok || !actionData.payload) throw new Error(actionData.error || "行动提交失败");
+
+      const advanceData = await apiPost(`/api/rooms/${activeCode}/message`, {
+        playerId,
+        author: displayName,
+        content: "根据对话内容推进剧情",
+      });
+      if (!advanceData.ok || !advanceData.payload) throw new Error(advanceData.error || "推进剧情失败");
+      setPayload(advanceData.payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "推进剧情失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function sendCustomAction() {
+    const custom = window.prompt("请输入自定义行动，例如：我先安抚对方情绪，再一起查资料决定下一步。");
+    if (custom?.trim()) {
+      sendActionAndAdvance(`自定义行动：${custom.trim()}`);
+    }
+  }
+
   function leaveLocalRoom() {
     localStorage.removeItem("parenting.roomCode");
     localStorage.removeItem("parenting.playerId");
     setRoomCode("");
     setPlayerId("");
     setPayload(null);
-    setParentA("");
-    setParentB("");
-    setWorld("现实向");
-    setSetupDraftDirty(false);
+    resetSetupDraft();
   }
 
   return (
@@ -276,7 +341,45 @@ export default function Home() {
 
               <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5">
                 <h2 className="text-lg font-bold">开局设定</h2>
-                <label className="mt-4 block text-sm font-medium">双亲 A 设定</label>
+
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                  <h3 className="font-semibold">双亲 A</h3>
+                  <label className="mt-3 block text-sm font-medium">姓名</label>
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentAName}
+                    onChange={(event) => {
+                      setParentAName(event.target.value);
+                      setSetupDraftDirty(true);
+                    }}
+                    placeholder="例如：林晓"
+                  />
+                  <label className="mt-3 block text-sm font-medium">职业</label>
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentAJob}
+                    onChange={(event) => {
+                      setParentAJob(event.target.value);
+                      setSetupDraftDirty(true);
+                    }}
+                    placeholder="例如：小学老师 / 程序员 / 自由职业"
+                  />
+                  <label className="mt-3 block text-sm font-medium">身份</label>
+                  <select
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentAPregnancyRole}
+                    onChange={(event) => {
+                      setParentAPregnancyRole(event.target.value);
+                      if (event.target.value === "怀孕方") setParentBPregnancyRole("非怀孕方");
+                      setSetupDraftDirty(true);
+                    }}
+                  >
+                    <option>怀孕方</option>
+                    <option>非怀孕方</option>
+                  </select>
+                </div>
+
+                <label className="mt-4 block text-sm font-medium">双亲 A 补充设定</label>
                 <textarea
                   className="mt-2 h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
                   value={parentA}
@@ -284,9 +387,47 @@ export default function Home() {
                     setParentA(event.target.value);
                     setSetupDraftDirty(true);
                   }}
-                  placeholder="姓名、年龄、职业、性格、育儿观、家庭背景……"
+                  placeholder="年龄、性格、育儿观、家庭背景、和另一位双亲的关系……"
                 />
-                <label className="mt-4 block text-sm font-medium">双亲 B 设定</label>
+
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                  <h3 className="font-semibold">双亲 B</h3>
+                  <label className="mt-3 block text-sm font-medium">姓名</label>
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentBName}
+                    onChange={(event) => {
+                      setParentBName(event.target.value);
+                      setSetupDraftDirty(true);
+                    }}
+                    placeholder="例如：周然"
+                  />
+                  <label className="mt-3 block text-sm font-medium">职业</label>
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentBJob}
+                    onChange={(event) => {
+                      setParentBJob(event.target.value);
+                      setSetupDraftDirty(true);
+                    }}
+                    placeholder="例如：医生 / 设计师 / 全职照护者"
+                  />
+                  <label className="mt-3 block text-sm font-medium">身份</label>
+                  <select
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
+                    value={parentBPregnancyRole}
+                    onChange={(event) => {
+                      setParentBPregnancyRole(event.target.value);
+                      if (event.target.value === "怀孕方") setParentAPregnancyRole("非怀孕方");
+                      setSetupDraftDirty(true);
+                    }}
+                  >
+                    <option>怀孕方</option>
+                    <option>非怀孕方</option>
+                  </select>
+                </div>
+
+                <label className="mt-4 block text-sm font-medium">双亲 B 补充设定</label>
                 <textarea
                   className="mt-2 h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-500"
                   value={parentB}
@@ -294,7 +435,7 @@ export default function Home() {
                     setParentB(event.target.value);
                     setSetupDraftDirty(true);
                   }}
-                  placeholder="姓名、年龄、职业、性格、育儿观、家庭背景……"
+                  placeholder="年龄、性格、育儿观、家庭背景、和另一位双亲的关系……"
                 />
                 <label className="mt-4 block text-sm font-medium">世界/家庭设定</label>
                 <textarea
@@ -342,8 +483,40 @@ export default function Home() {
               </div>
 
               <div className="border-t border-slate-100 p-5">
+                <div className="mb-3 rounded-2xl bg-amber-50 p-3">
+                  <p className="mb-2 text-sm font-semibold text-amber-900">行动方向</p>
+                  <div className="flex flex-wrap gap-2">
+                    {["A", "B", "C", "D"].map((choice) => (
+                      <button
+                        key={choice}
+                        className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200 hover:bg-amber-100 disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => sendActionAndAdvance(choice)}
+                      >
+                        选择 {choice}
+                      </button>
+                    ))}
+                    <button
+                      className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200 hover:bg-amber-100 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={sendCustomAction}
+                    >
+                      自定义行动
+                    </button>
+                    <button
+                      className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => sendMessage("根据对话内容推进剧情")}
+                    >
+                      根据对话内容推进剧情
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-amber-800">
+                    AI 给出 A/B/C/D 行动方向后，可直接点对应按钮；也可以输入自定义行动。
+                  </p>
+                </div>
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {["开始游戏", "产生随机事件", "结束回合", "查看状态"].map((command) => (
+                  {["开始游戏", "产生随机事件", "根据对话内容推进剧情", "结束回合", "查看状态"].map((command) => (
                     <button
                       key={command}
                       className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
