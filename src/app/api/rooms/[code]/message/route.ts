@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { callOpenRouter } from "@/lib/openrouter";
-import { commandOf, nextTurnState, statusText } from "@/lib/game";
+import { commandOf, nextTurnState, splitAiBubbles, statusText } from "@/lib/game";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { addSystemMessage, loadRoomPayload } from "@/lib/roomData";
 
@@ -10,6 +10,13 @@ const messageSchema = z.object({
   author: z.string().trim().min(1).max(30).default("玩家"),
   content: z.string().trim().min(1).max(4000),
 });
+
+async function addAiBubbles(roomId: string, content: string, kind: string) {
+  const bubbles = splitAiBubbles(content);
+  for (const bubble of bubbles) {
+    await addSystemMessage(roomId, bubble, kind);
+  }
+}
 
 type RouteContext = {
   params: Promise<{ code: string }> | { code: string };
@@ -23,11 +30,13 @@ export async function POST(request: Request, context: RouteContext) {
     const supabase = supabaseAdmin();
     const payload = await loadRoomPayload(code);
     const command = commandOf(body.content);
+    const player = body.playerId ? payload.players.find((item) => item.id === body.playerId) : null;
+    const author = player ? `${player.display_name}（${player.role === "parent_a" ? "双亲A" : player.role === "parent_b" ? "双亲B" : player.role}）` : body.author;
 
     const { error: messageError } = await supabase.from("messages").insert({
       room_id: payload.room.id,
       player_id: body.playerId || null,
-      author: body.author,
+      author,
       kind: command === "chat" ? "chat" : "command",
       content: body.content,
     });
@@ -47,7 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
       if (error) throw error;
       await addSystemMessage(
         latest.room.id,
-        `游戏开始。\n当前是第 ${latest.state.turn} 回合。普通聊天不会触发随机事件；需要事件时请输入“产生随机事件”；需要推进时请输入“结束回合”。`,
+        `游戏开始。\n当前是第 ${latest.state.turn} 回合。规则：孕期 2 回合，生产是独立事件，出生后 1 年 = 4 回合。普通聊天不会触发随机事件；需要事件时请输入“产生随机事件”；需要推进时请输入“结束回合”。`,
         "system",
       );
     }
@@ -66,7 +75,7 @@ export async function POST(request: Request, context: RouteContext) {
         event_type: "random_event",
         content: eventText,
       });
-      await addSystemMessage(latest.room.id, eventText, "event");
+      await addAiBubbles(latest.room.id, eventText, "event");
     }
 
     if (command === "advance_story") {
@@ -83,7 +92,7 @@ export async function POST(request: Request, context: RouteContext) {
         event_type: "story_advance",
         content: storyText,
       });
-      await addSystemMessage(latest.room.id, storyText, "story");
+      await addAiBubbles(latest.room.id, storyText, "story");
     }
 
     if (command === "end_turn") {
@@ -114,7 +123,7 @@ export async function POST(request: Request, context: RouteContext) {
         .from("game_states")
         .update({ state: nextState, updated_at: new Date().toISOString() })
         .eq("room_id", latest.room.id);
-      await addSystemMessage(latest.room.id, settlement, "settlement");
+      await addAiBubbles(latest.room.id, settlement, "settlement");
       await addSystemMessage(
         latest.room.id,
         `已进入第 ${nextState.turn} 回合。注意：不会自动产生随机事件；需要事件时请输入“产生随机事件”。`,

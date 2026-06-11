@@ -1,5 +1,21 @@
 import type { GameSetup, GameState } from "./types";
 
+export const TURNS_PER_YEAR = 4;
+export const PREGNANCY_TURNS = 2;
+
+function clampStat(value: unknown, fallback: number) {
+  const numberValue = Number(value ?? fallback);
+  if (!Number.isFinite(numberValue)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(numberValue)));
+}
+
+export function phaseLabel(state: GameState) {
+  if (state.phase === "pregnancy") return `孕期第 ${Math.min(state.turn, PREGNANCY_TURNS)} / ${PREGNANCY_TURNS} 回合`;
+  if (state.phase === "birth") return "生产事件";
+  if (state.phase.startsWith("child_age_")) return `孩子 ${state.year} 岁`;
+  return state.phase;
+}
+
 export function makeRoomCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -41,16 +57,40 @@ export function normalizeState(raw: unknown): GameState {
     turn: Number(state.turn ?? fallback.turn),
     year: Number(state.year ?? fallback.year),
     phase: String(state.phase ?? fallback.phase),
-    child: { ...fallback.child, ...(state.child ?? {}) },
-    family: { ...fallback.family, ...(state.family ?? {}) },
+    child: {
+      health: clampStat(state.child?.health, fallback.child.health),
+      security: clampStat(state.child?.security, fallback.child.security),
+      curiosity: clampStat(state.child?.curiosity, fallback.child.curiosity),
+      social: clampStat(state.child?.social, fallback.child.social),
+      learning: clampStat(state.child?.learning, fallback.child.learning),
+      mood: clampStat(state.child?.mood, fallback.child.mood),
+    },
+    family: {
+      money: clampStat(state.family?.money, fallback.family.money),
+      time: clampStat(state.family?.time, fallback.family.time),
+      stability: clampStat(state.family?.stability, fallback.family.stability),
+      support: clampStat(state.family?.support, fallback.family.support),
+      pressure: clampStat(state.family?.pressure, fallback.family.pressure),
+    },
     flags: Array.isArray(state.flags) ? state.flags.map(String) : [],
   };
 }
 
+export function timelineForTurn(turn: number) {
+  if (turn <= PREGNANCY_TURNS) {
+    return { year: 0, phase: "pregnancy" };
+  }
+  if (turn === PREGNANCY_TURNS + 1) {
+    return { year: 0, phase: "birth" };
+  }
+  const childTurn = turn - (PREGNANCY_TURNS + 2);
+  const year = Math.floor(childTurn / TURNS_PER_YEAR);
+  return { year, phase: `child_age_${year}` };
+}
+
 export function nextTurnState(state: GameState): GameState {
   const nextTurn = state.turn + 1;
-  const year = Math.floor((nextTurn - 1) / 10);
-  const phase = year === 0 ? "pregnancy" : `child_age_${year}`;
+  const { year, phase } = timelineForTurn(nextTurn);
   return {
     ...state,
     turn: nextTurn,
@@ -73,10 +113,10 @@ export function statusText(state: GameState, setup: GameSetup) {
 
   return [
     `当前回合：第 ${state.turn} 回合`,
-    `时间：${state.year === 0 ? "孕期" : `孩子 ${state.year} 岁`}（每 10 回合 = 1 年）`,
-    `阶段：${state.phase}`,
-    `双亲A：${parentAIdentity}；补充设定：${setup.parentA || "未填写"}`,
-    `双亲B：${parentBIdentity}；补充设定：${setup.parentB || "未填写"}`,
+    `时间：${phaseLabel(state)}（孕期 2 回合；生产为独立事件；出生后每 4 回合 = 1 年）`,
+    `阶段代码：${state.phase}`,
+    `双亲A角色：${parentAIdentity}；补充设定：${setup.parentA || "未填写"}`,
+    `双亲B角色：${parentBIdentity}；补充设定：${setup.parentB || "未填写"}`,
     `世界设定：${setup.world || "现实向"}`,
     `孩子状态：健康 ${state.child.health}，安全感 ${state.child.security}，好奇心 ${state.child.curiosity}，社交 ${state.child.social}，学习 ${state.child.learning}，情绪 ${state.child.mood}`,
     `家庭状态：金钱 ${state.family.money}，时间 ${state.family.time}，稳定度 ${state.family.stability}，支持网络 ${state.family.support}，压力 ${state.family.pressure}`,
@@ -91,4 +131,38 @@ export function commandOf(content: string) {
   if (text === "结束回合") return "end_turn";
   if (text === "查看状态") return "status";
   return "chat";
+}
+
+export function splitAiBubbles(content: string) {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+
+  const paragraphParts = normalized
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const parts = paragraphParts.length > 1 ? paragraphParts : normalized.split(/(?=\n(?:事件标题|事件描述|可选行动|潜在影响|剧情推进|已采纳|当前变化|新的行动方向|回合总结|玩家行动|孩子\/孕期影响|家庭影响|下一步提示|A\.|B\.|C\.|D\.))/);
+
+  const bubbles: string[] = [];
+  for (const part of parts.map((item) => item.trim()).filter(Boolean)) {
+    if (part.length <= 260) {
+      bubbles.push(part);
+      continue;
+    }
+    const sentences = part.split(/(?<=[。！？；])/);
+    let current = "";
+    for (const sentence of sentences) {
+      const next = `${current}${sentence}`.trim();
+      if (next.length > 220 && current) {
+        bubbles.push(current.trim());
+        current = sentence.trim();
+      } else {
+        current = next;
+      }
+    }
+    if (current) bubbles.push(current.trim());
+  }
+
+  return bubbles.length ? bubbles : [normalized];
 }

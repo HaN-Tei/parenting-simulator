@@ -10,6 +10,8 @@ export type GameSetup = {
   world?: string;
 };
 
+export type PlayerRole = "parent_a" | "parent_b" | string;
+
 export type GameState = {
   turn: number;
   year: number;
@@ -44,7 +46,7 @@ export type RoomPayload = {
   players: Array<{
     id: string;
     display_name: string;
-    role: string;
+    role: PlayerRole;
     created_at: string;
   }>;
   setup: GameSetup;
@@ -57,4 +59,31 @@ export type RoomPayload = {
     content: string;
     created_at: string;
   }>;
+};
+
+export type RoomSaveSummary = {
+  id: number;
+  name: string;
+  createdAt: string;
+  createdBy: string;
+  turn: number;
+  year: number;
+  phase: string;
+  messageMaxId: number;
+};
+
+export type RoomSaveSnapshot = {
+  version: 1;
+  name: string;
+  createdAt: string;
+  createdBy: string;
+  room: {
+    status: string;
+    current_turn: number;
+    current_year: number;
+    phase: string;
+  };
+  setup: GameSetup;
+  state: GameState;
+  messageMaxId: number;
 };
