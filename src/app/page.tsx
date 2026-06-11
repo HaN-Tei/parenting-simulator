@@ -27,7 +27,6 @@ function formatDateTime(value: string) {
 }
 function roleLabel(role?: string) { return role === "parent_a" ? "双亲A" : role === "parent_b" ? "双亲B" : role || "未绑定角色"; }
 
-// 阶段标签函数
 function phaseLabel(state: RoomPayload["state"]) {
   if (state.phase === "pregnancy") return `孕期第 ${Math.min(state.turn, 2)} / 2 回合`;
   if (state.phase === "birth") return "生产事件";
@@ -65,7 +64,7 @@ export default function Home() {
   const [parentBJob, setParentBJob] = useState("");
   const [parentBPregnancyRole, setParentBPregnancyRole] = useState("非怀孕方");
   const [parentB, setParentB] = useState("");
-  const [pregnancyOrigin, setPregnancyOrigin] = useState(""); // 怀孕背景描述
+  const [pregnancyOrigin, setPregnancyOrigin] = useState("");
   const [world, setWorld] = useState("现实向");
   const [myBubbleColor, setMyBubbleColor] = useState(defaultColors.my);
   const [otherBubbleColor, setOtherBubbleColor] = useState(defaultColors.other);
@@ -73,8 +72,8 @@ export default function Home() {
   const [aiBubbleColor, setAiBubbleColor] = useState(defaultColors.ai);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [customStory, setCustomStory] = useState(""); // 自定义剧情插入
-  const [currentStage, setCurrentStage] = useState(1); // 当前阶段 (1-3)
+  const [customStory, setCustomStory] = useState("");
+  const [showSidebar, setShowSidebar] = useState(true); // 控制侧边栏显隐
 
   const [fontSize, setFontSize] = useState<"small" | "base" | "large" | "huge">("base");
   const [darkMode, setDarkMode] = useState(false);
@@ -291,7 +290,6 @@ export default function Home() {
     }
   }
 
-  // 插入自定义剧情
   async function insertCustomStory() {
     if (!activeCode || !customStory.trim()) return;
     setBusy(true); setError("");
@@ -364,7 +362,7 @@ export default function Home() {
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500">双用户同步 AI 育儿模拟器</p>
               <h1 className="mt-2 text-2xl md:text-3.5xl font-extrabold tracking-tight">从怀孕开始的共同养育故事</h1>
-              <p className="mt-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">三阶段回合制：每回合分为A/B/C三个阶段。只有点击选项才算行动。</p>
+              <p className="mt-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">侧边控制台：所有状态指标、指令、行动和插入选项现已完美归纳在侧栏中。</p>
             </div>
             
             <div className={`p-4 rounded-2xl flex flex-wrap gap-4 items-center ${darkMode ? 'bg-slate-950/60' : 'bg-stone-50'}`}>
@@ -414,62 +412,134 @@ export default function Home() {
               </div>
             </section>
           ) : (
-            <div className="grid gap-6 xl:grid-cols-[390px_1fr]">
-              <aside className="flex flex-col gap-6">
-                
-                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
-                  <div className="flex justify-between gap-4 items-start">
-                    <div>
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">当前状态</p>
-                      <h2 className="mt-1 text-lg font-black">{statusLine}</h2>
-                      <p className="mt-2.5 inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-bold shadow-xs bg-amber-500/10 text-amber-500 border border-amber-500/20">你正在扮演：{currentRole}</p>
+            <div className="flex flex-col xl:flex-row gap-6 items-start h-[780px] overflow-hidden">
+              {/* === 侧边控制面板（包括原属性栏、A/B/C/D行动选择、插入剧情、配置） === */}
+              {showSidebar && (
+                <aside className="w-full xl:w-[390px] h-full overflow-y-auto space-y-6 flex-shrink-0 pr-1 pb-4 scrollbar-thin scrollbar-thumb-amber-600/20">
+                  
+                  {/* 行动与选择板块 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <p className="mb-2 text-xs font-bold tracking-widest text-amber-500 uppercase">🎯 当前阶段：{(payload.state as any).stage || 1}/3</p>
+                    <div className="flex overflow-x-auto pb-2 gap-2.5 flex-nowrap scrollbar-thin scrollbar-thumb-amber-600/40 max-w-full">
+                      {["A", "B", "C", "D"].map((c) => (
+                        <button
+                          key={c}
+                          className="rounded-full bg-stone-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
+                          disabled={busy}
+                          onClick={() => sendActionAndAdvance(c)}
+                        >
+                          选择行动 {c}
+                        </button>
+                      ))}
+                      <button
+                        className="rounded-full bg-stone-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
+                        disabled={busy}
+                        onClick={() => {
+                          const custom = window.prompt("请输入双亲自定义行动描述：");
+                          if (custom?.trim()) sendActionAndAdvance(`自定义行动：${custom.trim()}`);
+                        }}
+                      >
+                        ✍️ 自定义
+                      </button>
                     </div>
-                    <button className="text-xs underline text-slate-400 hover:text-slate-200" onClick={leaveLocalRoom}>注销房间</button>
-                  </div>
-                  <div className={`mt-4 rounded-2xl p-4 text-xs font-medium space-y-1.5 ${tagBgClass}`}>{payload.players.map((p) => <p key={p.id}>🛡️ {roleLabel(p.role)}：{p.display_name}{p.id === playerId ? "（你）" : ""}</p>)}</div>
-                </section>
 
-                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
-                  <h2 className="text-lg font-black flex items-center gap-1">📊 属性指标动态反馈</h2>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">生命指标在 [0 - 100] 中实时展示；支持和金钱越高，家庭和孩子状况越好。</p>
-                  
-                  <h3 className="mt-5 mb-2.5 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">孩子 / 孕育状态</h3>
-                  <div className="space-y-4">{Object.entries(payload.state.child).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} />)}</div>
-                  
-                  <h3 className="mt-6 mb-2.5 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">家庭 / 现实生活</h3>
-                  <div className="space-y-4">{Object.entries(payload.state.family).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} dangerHigh={k === "pressure"} />)}</div>
-                </section>
+                    <div className="mt-4 flex flex-col gap-2 border-t border-slate-300/10 pt-4">
+                      {["开始游戏", "根据对话内容推进剧情", "查看状态"].map((cmd) => (
+                        <button
+                          key={cmd}
+                          className={`w-full rounded-2xl py-2.5 text-xs font-bold select-none cursor-pointer transition-all ${btnActiveBg}`}
+                          disabled={busy}
+                          onClick={() => sendMessage(cmd)}
+                        >
+                          ⚙️ {cmd}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
 
-                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
-                  <div className="flex justify-between items-center"><h2 className="text-lg font-black">游戏存档</h2><button className="text-xs font-bold underline" disabled={busy} onClick={() => refreshSaves()}>刷新历史</button></div>
-                  <button className="mt-4 w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 py-3.5 font-bold text-white shadow-sm transition-all disabled:opacity-50" disabled={busy} onClick={createSave}>保存当前进度</button>
-                  <div className="mt-4 space-y-2.5 max-h-48 overflow-y-auto">{saves.length ? saves.map((s) => <div key={s.id} className={`rounded-2xl p-3 border ${darkMode ? "bg-slate-950/60 border-slate-800" : "bg-slate-50 border-slate-100"}`}><div className="flex justify-between gap-3 items-center"><div><p className="font-bold text-xs">{s.name}</p><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">第{s.turn}回｜{savePhaseLabel(s)}｜{formatDateTime(s.createdAt)}</p></div><button className="rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[10px] font-bold text-emerald-600 hover:opacity-85 ring-1 ring-emerald-600/30" disabled={busy} onClick={() => loadSave(s)}>读取</button></div></div>) : <p className="p-3 text-xs text-slate-500 text-center">空荡荡的，暂时没有备份存档。</p>}</div>
-                </section>
+                  {/* 剧情插入选项 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <p className="text-xs font-bold text-purple-500 mb-2">✨ 插入自定义剧情</p>
+                    <textarea 
+                      className={`w-full h-16 rounded-xl px-3 py-2 text-xs ${inputBorderClass}`}
+                      value={customStory} 
+                      onChange={(e) => setCustomStory(e.target.value)}
+                      placeholder="自定义一段剧情插入，用来补充设定（不少于50字）..."
+                    />
+                    <button 
+                      className="mt-2 text-xs font-bold underline text-purple-500 disabled:opacity-50"
+                      disabled={busy || customStory.length < 50}
+                      onClick={insertCustomStory}
+                    >
+                      立即插入
+                    </button>
+                  </section>
 
-                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
-                  <h2 className="text-lg font-black">自定义气泡色彩</h2>
-                  <p className="mt-1 text-[10px] text-slate-400">在游玩中微调自己的气泡色调：</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs font-semibold">{["我的气泡", "对方气泡", "系统消息", "AI旁白"].map((label, i) => { const value = i === 0 ? myBubbleColor : i === 1 ? otherBubbleColor : i === 2 ? systemBubbleColor : aiBubbleColor; const setter = i === 0 ? setMyBubbleColor : i === 1 ? setOtherBubbleColor : i === 2 ? setSystemBubbleColor : setAiBubbleColor; return <label key={label} className="flex flex-col gap-1.5 bg-slate-400/5 p-2 rounded-xl border border-slate-600/5"><span>{label}</span><input className="h-6 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={value} onChange={(e) => setter(e.target.value)} /></label>; })}</div>
-                </section>
+                  {/* 状态监控 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <div className="flex justify-between gap-4 items-start">
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">当前状态</p>
+                        <h2 className="mt-1 text-sm font-black">{statusLine}</h2>
+                        <p className="mt-2.5 inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-bold shadow-xs bg-amber-500/10 text-amber-500 border border-amber-500/20">你正在扮演：{currentRole}</p>
+                      </div>
+                      <button className="text-[10px] underline text-slate-400 hover:text-slate-200" onClick={leaveLocalRoom}>注销房间</button>
+                    </div>
+                    <div className={`mt-4 rounded-2xl p-4 text-xs font-medium space-y-1.5 ${tagBgClass}`}>{payload.players.map((p) => <p key={p.id}>🛡️ {roleLabel(p.role)}：{p.display_name}{p.id === playerId ? "（你）" : ""}</p>)}</div>
+                  </section>
 
-                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
-                  <h2 className="text-lg font-black">初始设定</h2>
-                  <p className="mt-1 text-xs text-slate-500">此规则会约束 AI 的剧情生成因果。</p>
-                  <div className="mt-4 grid gap-3"><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentAName} onChange={(e) => setDirty(setParentAName, e.target.value)} placeholder="双亲A的姓名" /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentAJob} onChange={(e) => setDirty(setParentAJob, e.target.value)} placeholder="双亲A的职业" /><select className={`rounded-2xl px-4 py-3 text-xs border ${selectBorderClass}`} value={parentAPregnancyRole} onChange={(e) => { setDirty(setParentAPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentBPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentA} onChange={(e) => setDirty(setParentA, e.target.value)} placeholder="对双亲A的补充描述..." /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentBName} onChange={(e) => setDirty(setParentBName, e.target.value)} placeholder="双亲B的姓名" /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentBJob} onChange={(e) => setDirty(setParentBJob, e.target.value)} placeholder="双亲B的职业" /><select className={`rounded-2xl px-4 py-3 text-xs border ${selectBorderClass}`} value={parentBPregnancyRole} onChange={(e) => { setDirty(setParentBPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentAPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentB} onChange={(e) => setDirty(setParentB, e.target.value)} placeholder="对双亲B的补充描述..." /><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={world} onChange={(e) => setDirty(setWorld, e.target.value)} placeholder="关于家庭背景、社会环境或补充设定..." /></div>
-                  <button className="mt-4 w-full rounded-2xl bg-amber-600 px-4 py-3 font-semibold text-white text-xs disabled:opacity-50 hover:bg-amber-500" disabled={busy} onClick={saveSetup}>保存设定</button>
-                </section>
-              </aside>
+                  {/* 属性数据 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <h2 className="text-sm font-black flex items-center gap-1">📊 属性指标动态反馈</h2>
+                    <p className="mt-1 text-[10px] text-slate-500">数值秒级更新实时呈现。</p>
+                    <h3 className="mt-4 mb-2 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">孩子 / 孕育状态</h3>
+                    <div className="space-y-3">{Object.entries(payload.state.child).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} />)}</div>
+                    <h3 className="mt-5 mb-2 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">家庭 / 现实生活</h3>
+                    <div className="space-y-3">{Object.entries(payload.state.family).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} dangerHigh={k === "pressure"} />)}</div>
+                  </section>
 
-              <section className={`rounded-3xl shadow-sm flex flex-col ${cardBgClass}`}>
+                  {/* 游戏存档板块 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <div className="flex justify-between items-center"><h2 className="text-sm font-black">游戏存档</h2><button className="text-xs font-bold underline" disabled={busy} onClick={() => refreshSaves()}>刷新</button></div>
+                    <button className="mt-3 w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 py-2.5 font-bold text-white text-xs shadow-sm transition-all disabled:opacity-50" disabled={busy} onClick={createSave}>保存当前进度</button>
+                    <div className="mt-4 space-y-2 max-h-40 overflow-y-auto">{saves.length ? saves.map((s) => <div key={s.id} className={`rounded-2xl p-2.5 border ${darkMode ? "bg-slate-950/60 border-slate-800" : "bg-slate-50 border-slate-100"}`}><div className="flex justify-between gap-2 items-center"><div><p className="font-bold text-xs">{s.name}</p><p className="mt-0.5 text-[9px] text-slate-500">第{s.turn}回｜{savePhaseLabel(s)}</p></div><button className="rounded-full bg-white dark:bg-slate-800 px-2.5 py-0.5 text-[9px] font-bold text-emerald-600 hover:opacity-85 ring-1 ring-emerald-600/30" disabled={busy} onClick={() => loadSave(s)}>读取</button></div></div>) : <p className="p-2.5 text-[10px] text-slate-500 text-center">空荡荡的，暂时没有备份存档。</p>}</div>
+                  </section>
+
+                  {/* 气泡偏好 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <h2 className="text-sm font-black">自定义气泡色彩</h2>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-semibold">{["我的气泡", "对方气泡", "系统消息", "AI旁白"].map((label, i) => { const value = i === 0 ? myBubbleColor : i === 1 ? otherBubbleColor : i === 2 ? systemBubbleColor : aiBubbleColor; const setter = i === 0 ? setMyBubbleColor : i === 1 ? setOtherBubbleColor : i === 2 ? setSystemBubbleColor : setAiBubbleColor; return <label key={label} className="flex flex-col gap-1 bg-slate-400/5 p-1.5 rounded-xl border border-slate-600/5"><span>{label}</span><input className="h-5 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={value} onChange={(e) => setter(e.target.value)} /></label>; })}</div>
+                  </section>
+
+                  {/* 初始设定 */}
+                  <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                    <h2 className="text-sm font-black">初始设定说明规则</h2>
+                    <div className="mt-3 grid gap-2.5"><input className={`rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentAName} onChange={(e) => setDirty(setParentAName, e.target.value)} placeholder="双亲A的姓名" /><input className={`rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentAJob} onChange={(e) => setDirty(setParentAJob, e.target.value)} placeholder="双亲A的职业" /><select className={`rounded-xl px-3 py-2 text-xs border ${selectBorderClass}`} value={parentAPregnancyRole} onChange={(e) => { setDirty(setParentAPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentBPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-16 rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentA} onChange={(e) => setDirty(setParentA, e.target.value)} placeholder="对双亲A的补充描述..." /><input className={`rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentBName} onChange={(e) => setDirty(setParentBName, e.target.value)} placeholder="双亲B的姓名" /><input className={`rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentBJob} onChange={(e) => setDirty(setParentBJob, e.target.value)} placeholder="双亲B的职业" /><select className={`rounded-xl px-3 py-2 text-xs border ${selectBorderClass}`} value={parentBPregnancyRole} onChange={(e) => { setDirty(setParentBPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentAPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-16 rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={parentB} onChange={(e) => setDirty(setParentB, e.target.value)} placeholder="对双亲B的补充描述..." /><textarea className={`h-16 rounded-xl px-3 py-2 text-xs border ${inputBorderClass}`} value={world} onChange={(e) => setDirty(setWorld, e.target.value)} placeholder="关于家庭背景、世界环境描述..." /></div>
+                    <button className="mt-3 w-full rounded-2xl bg-amber-600 py-2.5 font-semibold text-white text-xs disabled:opacity-50 hover:bg-amber-500" disabled={busy} onClick={saveSetup}>保存设定</button>
+                  </section>
+                </aside>
+              )}
+
+              {/* === 主页面：对话框区域（完全聚焦聊天本身） === */}
+              <section className={`flex-1 h-full flex flex-col overflow-hidden rounded-3xl shadow-sm ${cardBgClass}`}>
                 
-                <div className="border-b border-slate-300/10 p-5 flex flex-col sm:flex-row justify-between gap-3 items-start sm:items-center">
+                {/* 对话框头部，增加折叠/展开侧边栏的控制按钮 */}
+                <div className="border-b border-slate-300/10 p-5 flex justify-between gap-3 items-center">
                   <div>
                     <h2 className="text-lg font-black flex items-center gap-1.5">📖 共同养育日记</h2>
-                    <p className="mt-1 text-xs text-slate-500">房间连接码：<span className="font-mono font-bold text-amber-500 select-all">{payload.room.room_code}</span>。三阶段回合：只有点击选项才算行动。</p>
+                    <p className="mt-1 text-xs text-slate-500">连接码：<span className="font-mono font-bold text-amber-500 select-all">{payload.room.room_code}</span></p>
                   </div>
+                  
+                  <button 
+                    onClick={() => setShowSidebar(!showSidebar)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-800 bg-stone-100 hover:bg-stone-200 dark:bg-slate-950 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    <span>{showSidebar ? "📁 折叠控制面板" : "📋 展开控制面板"}</span>
+                  </button>
                 </div>
 
-                <div className={`flex-1 h-[680px] overflow-y-auto p-5 space-y-4 sans-story ${FONT_CLASSES[fontSize]}`}>
+                {/* 滚动气泡中心 */}
+                <div className={`flex-1 overflow-y-auto p-5 space-y-4 sans-story ${FONT_CLASSES[fontSize]}`}>
                   {payload.messages.map((m) => {
                     const isMyMsg = m.player_id === playerId;
                     const bubbleBg = bg(m);
@@ -491,64 +561,8 @@ export default function Home() {
                   })}
                 </div>
 
+                {/* 输入区域：纯文本输入，绝无杂乱选项与按钮 */}
                 <div className="border-t border-slate-300/10 p-5">
-                  <div className={`mb-4 rounded-2xl p-4 ${darkMode ? "bg-slate-950/60" : "bg-amber-500/5"}`}>
-                    <p className="mb-2 text-xs font-bold tracking-widest text-amber-500 uppercase">🎯 当前阶段：{payload?.state.stage || 1}/3</p>
-                    <div className="flex overflow-x-auto pb-2 gap-2.5 flex-nowrap scrollbar-thin scrollbar-thumb-amber-600/40 max-w-full">
-                      {["A", "B", "C", "D"].map((c) => (
-                        <button
-                          key={c}
-                          className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
-                          disabled={busy}
-                          onClick={() => sendActionAndAdvance(c)}
-                        >
-                          选择行动 {c}
-                        </button>
-                      ))}
-                      <button
-                        className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
-                        disabled={busy}
-                        onClick={() => {
-                          const custom = window.prompt("请输入双亲自定义行动描述：");
-                          if (custom?.trim()) sendActionAndAdvance(`自定义行动：${custom.trim()}`);
-                        }}
-                      >
-                        ✍️ 自定义行动
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 自定义剧情插入 */}
-                  <div className="mb-4 p-3 bg-purple-500/5 rounded-xl border border-purple-500/10">
-                    <p className="text-xs font-bold text-purple-500 mb-2">✨ 插入自定义剧情</p>
-                    <textarea 
-                      className={`w-full h-16 rounded-lg px-3 py-2 text-xs ${inputBorderClass}`}
-                      value={customStory} 
-                      onChange={(e) => setCustomStory(e.target.value)}
-                      placeholder="输入要插入的剧情片段（不少于50字）..."
-                    />
-                    <button 
-                      className="mt-2 text-xs font-bold underline text-purple-500"
-                      disabled={busy || customStory.length < 50}
-                      onClick={insertCustomStory}
-                    >
-                      插入剧情
-                    </button>
-                  </div>
-
-                  <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-300/10 pb-4">
-                    {["开始游戏", "根据对话内容推进剧情", "查看状态"].map((cmd) => (
-                      <button
-                        key={cmd}
-                        className={`rounded-full px-4.5 py-2 text-xs font-bold select-none cursor-pointer transition-all ${btnActiveBg}`}
-                        disabled={busy}
-                        onClick={() => sendMessage(cmd)}
-                      >
-                        ⚙️ {cmd}
-                      </button>
-                    ))}
-                  </div>
-
                   <div className="flex gap-2.5 items-end">
                     <textarea
                       className={`h-22 flex-1 rounded-2xl px-4 py-3.5 text-xs font-medium resize-none tracking-wide focus:outline-none focus:ring-1 focus:ring-amber-500 ${inputBorderClass}`}
@@ -561,7 +575,7 @@ export default function Home() {
                       🚀 发送
                     </button>
                   </div>
-                  <p className="mt-2 text-[10px] text-slate-500 select-none">快捷键：Ctrl/⌘ + Enter 发送。</p>
+                  <p className="mt-2 text-[10px] text-slate-500 select-none">提示：您现在可以尽情角色扮演交流。快捷键：Ctrl/⌘ + Enter 发送。</p>
                 </div>
               </section>
             </div>
