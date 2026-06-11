@@ -73,7 +73,14 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [customStory, setCustomStory] = useState("");
-  const [showSidebar, setShowSidebar] = useState(true); // 控制侧边栏显隐
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  useEffect(() => {
+    // 宽屏/PC端默认展开，手机端默认折叠
+    if (typeof window !== "undefined" && window.innerWidth >= 1280) {
+      setShowSidebar(true);
+    }
+  }, []);
 
   const [fontSize, setFontSize] = useState<"small" | "base" | "large" | "huge">("base");
   const [darkMode, setDarkMode] = useState(false);
@@ -412,10 +419,10 @@ export default function Home() {
               </div>
             </section>
           ) : (
-            <div className="flex flex-col xl:flex-row gap-6 items-start h-[780px] overflow-hidden">
+            <div className="relative flex flex-col xl:flex-row gap-6 items-stretch h-[680px] md:h-[780px] overflow-hidden">
               {/* === 侧边控制面板（包括原属性栏、A/B/C/D行动选择、插入剧情、配置） === */}
               {showSidebar && (
-                <aside className="w-full xl:w-[390px] h-full overflow-y-auto space-y-6 flex-shrink-0 pr-1 pb-4 scrollbar-thin scrollbar-thumb-amber-600/20">
+                <aside className="absolute xl:static left-0 top-0 w-[85%] sm:w-[320px] xl:w-[390px] h-full overflow-y-auto space-y-6 flex-shrink-0 pr-2 pb-4 scrollbar-thin scrollbar-thumb-amber-600/20 z-50 bg-[#fafaf9] dark:bg-slate-900 xl:bg-transparent border-r dark:border-slate-800 xl:border-none shadow-2xl xl:shadow-none p-5 xl:p-0">
                   
                   {/* 行动与选择板块 */}
                   <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
