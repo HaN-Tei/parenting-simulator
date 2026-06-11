@@ -13,21 +13,28 @@ const messageSchema = z.object({
 
 // 解析并应用 [STATS_UPDATE] 指标变化，然后将纯文本返回
 async function applyStatsUpdateAndFilter(roomId: string, rawContent: string, currentGameState: any): Promise<string> {
-  const markerStart = "[STATS_UPDATE]";
-  const markerEnd = "[STATS_UPDATE_END]";
-  
-  const startIndex = rawContent.indexOf(markerStart);
-  const endIndex = rawContent.indexOf(markerEnd);
+  // 使用不区分大小写的正则表达式匹配指标更新块，即便最后缺失结束标记也能够安全拦截
+  const blockRegex = /\[STATS_UPDATE\]([\s\S]*?)(?:\[STATS_UPDATE_END\]|$)/i;
+  const match = rawContent.match(blockRegex);
 
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+  if (!match) {
     return rawContent; // 没有检测到指标修改标记，直接返回原内容
   }
 
-  const jsonStr = rawContent.slice(startIndex + markerStart.length, endIndex).trim();
-  const cleanContent = (rawContent.slice(0, startIndex) + rawContent.slice(endIndex + markerEnd.length)).trim();
+  const jsonStr = match[1].trim();
+  // 彻底在页面要展示的文本中剔除改指标快
+  const cleanContent = rawContent.replace(blockRegex, "").trim();
 
   try {
-    const update = JSON.parse(jsonStr);
+    // 鲁棒性修复：当部分端点因为 Token 截断导致 JSON 缺失结尾花括号时，自动补全。
+    let repairedJson = jsonStr;
+    const openBraces = (repairedJson.match(/\{/g) || []).length;
+    const closeBraces = (repairedJson.match(/\}/g) || []).length;
+    if (openBraces > closeBraces) {
+      repairedJson += "}".repeat(openBraces - closeBraces);
+    }
+
+    const update = JSON.parse(repairedJson);
     const supabase = supabaseAdmin();
 
     const oldState = currentGameState;
