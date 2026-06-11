@@ -30,6 +30,7 @@ export function initialGameState(): GameState {
     turn: 1,
     year: 0,
     phase: "pregnancy",
+    stage: 1,
     child: {
       health: 80,
       security: 50,
@@ -57,6 +58,7 @@ export function normalizeState(raw: unknown): GameState {
     turn: Number(state.turn ?? fallback.turn),
     year: Number(state.year ?? fallback.year),
     phase: String(state.phase ?? fallback.phase),
+    stage: Number(state.stage ?? fallback.stage ?? 1),
     child: {
       health: clampStat(state.child?.health, fallback.child.health),
       security: clampStat(state.child?.security, fallback.child.security),
@@ -112,7 +114,7 @@ export function statusText(state: GameState, setup: GameSetup) {
   ].join("，");
 
   return [
-    `当前回合：第 ${state.turn} 回合`,
+    `当前回合：第 ${state.turn} 回合 (当前阶段：第 ${state.stage || 1} 阶段)`,
     `时间：${phaseLabel(state)}（孕期 2 回合；生产为独立事件；出生后每 4 回合 = 1 年）`,
     `阶段代码：${state.phase}`,
     `双亲A角色：${parentAIdentity}；补充设定：${setup.parentA || "未填写"}`,
@@ -130,6 +132,7 @@ export function commandOf(content: string) {
   if (text === "根据对话内容推进剧情") return "advance_story";
   if (text === "结束回合") return "end_turn";
   if (text === "查看状态") return "status";
+  if (text.startsWith("行动选择：") || text.startsWith("自定义剧情：")) return "action";
   return "chat";
 }
 
@@ -137,32 +140,10 @@ export function splitAiBubbles(content: string) {
   const normalized = content.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
 
-  const paragraphParts = normalized
+  // 从宽拆分：由于不想要过度简化的微气泡和繁杂分隔符号，
+  // 我们修改为仅按照标准的双换行 \n\n 拆分成完整的段（保留较丰富的段落文字和多行动选项整体组合形式）
+  return normalized
     .split(/\n{2,}/)
     .map((part) => part.trim())
     .filter(Boolean);
-
-  const parts = paragraphParts.length > 1 ? paragraphParts : normalized.split(/(?=\n(?:事件标题|事件描述|可选行动|潜在影响|剧情推进|已采纳|当前变化|新的行动方向|回合总结|玩家行动|孩子\/孕期影响|家庭影响|下一步提示|A\.|B\.|C\.|D\.))/);
-
-  const bubbles: string[] = [];
-  for (const part of parts.map((item) => item.trim()).filter(Boolean)) {
-    if (part.length <= 260) {
-      bubbles.push(part);
-      continue;
-    }
-    const sentences = part.split(/(?<=[。！？；])/);
-    let current = "";
-    for (const sentence of sentences) {
-      const next = `${current}${sentence}`.trim();
-      if (next.length > 220 && current) {
-        bubbles.push(current.trim());
-        current = sentence.trim();
-      } else {
-        current = next;
-      }
-    }
-    if (current) bubbles.push(current.trim());
-  }
-
-  return bubbles.length ? bubbles : [normalized];
 }

@@ -70,7 +70,7 @@ async function applyStatsUpdateAndFilter(roomId: string, rawContent: string, cur
 }
 
 async function addAiBubbles(roomId: string, content: string, kind: string, currentGameState: any): Promise<any> {
-  // 首行执行：解析并应用任何属性修改
+  // 解析并应用任何属性修改
   const cleanContent = await applyStatsUpdateAndFilter(roomId, content, currentGameState);
   
   const bubbles = splitAiBubbles(cleanContent);
@@ -79,9 +79,9 @@ async function addAiBubbles(roomId: string, content: string, kind: string, curre
   }
 }
 
-// 自动生成并追加随机事件函数
+// 自动生成并追加随机事件函数 (阶段1: 基础事件)
 async function triggerAutoRandomEvent(roomId: string, latestPayload: any) {
-  await addSystemMessage(roomId, "进入新阶段，正在自动激活随机事件……", "thinking");
+  await addSystemMessage(roomId, `进入全新阶段 (阶段 ${latestPayload.state.stage || 1})，正在自动激活危机事件……`, "thinking");
   
   const eventText = await callOpenRouter({
     kind: "event",
@@ -97,13 +97,47 @@ async function triggerAutoRandomEvent(roomId: string, latestPayload: any) {
     content: eventText,
   });
 
-  // 在生成随机事件的同时，根据其产出自动更新行星/育儿数值
   await addAiBubbles(roomId, eventText, "event", latestPayload.state);
 }
 
-// 回合强制结算和过渡到下一回合，并立刻生发一次新回合随机事件
+// 推进阶段行动
+async function advanceStage(roomId: string, latestPayload: any, code: string) {
+  const currentStage = latestPayload.state.stage || 1;
+  const nextStage = currentStage + 1;
+  
+  await addSystemMessage(roomId, `行动已提交，正在推演第 ${currentStage}/3 阶段后续情节……`, "thinking");
+
+  // 1. 更新阶段
+  const newState = { ...latestPayload.state, stage: nextStage };
+  const supabase = supabaseAdmin();
+  
+  await supabase
+    .from("game_states")
+    .update({ state: newState, updated_at: new Date().toISOString() })
+    .eq("room_id", roomId);
+
+  // 2. 推进新情节
+  const payloadWithNewState = { ...latestPayload, state: newState };
+  const storyText = await callOpenRouter({
+    kind: "advance",
+    setup: payloadWithNewState.setup,
+    state: payloadWithNewState.state,
+    recentMessages: payloadWithNewState.messages,
+  });
+
+  await supabase.from("events").insert({
+    room_id: roomId,
+    turn: payloadWithNewState.state.turn,
+    event_type: "story_advance",
+    content: storyText,
+  });
+
+  await addAiBubbles(roomId, storyText, "story", newState);
+}
+
+// 回合强制结算和过渡到下一回合，并立刻激发下回合事件
 async function executeEndAndNewTurn(roomId: string, latestPayload: any, code: string) {
-  await addSystemMessage(roomId, "回合行动全部结束，正在进行阶段数值清算与复盘……", "thinking");
+  await addSystemMessage(roomId, "本回合所有关联阶段行动全部完结，正在进行年度指标总结与复盘……", "thinking");
 
   const settlement = await callOpenRouter({
     kind: "settlement",
@@ -112,7 +146,10 @@ async function executeEndAndNewTurn(roomId: string, latestPayload: any, code: st
     recentMessages: latestPayload.messages,
   });
 
-  const nextState = nextTurnState(latestPayload.state);
+  // 推进回合, stage 重置为 1
+  let nextState = nextTurnState(latestPayload.state);
+  nextState.stage = 1;
+  
   const supabase = supabaseAdmin();
 
   // 1. 存储结算记录
@@ -143,7 +180,7 @@ async function executeEndAndNewTurn(roomId: string, latestPayload: any, code: st
   // 4. 展示本期清算气泡，并刷新数值
   await addAiBubbles(roomId, settlement, "settlement", latestPayload.state);
 
-  // 5. 重要：新一轮自动开启，直接自发生发有且仅有一次的随机事件！
+  // 5. 新一轮自动开启，激发新年度阶段1危机！
   const updatedPayload = await loadRoomPayload(code);
   await triggerAutoRandomEvent(roomId, updatedPayload);
 }
@@ -159,7 +196,7 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
     const player = body.playerId ? payload.players.find((item) => item.id === body.playerId) : null;
     const author = player ? `${player.display_name}（${player.role === "parent_a" ? "双亲A" : player.role === "parent_b" ? "双亲B" : player.role}）` : body.author;
 
-    // 排除特定指令，录入当前聊天或行动
+    // 录入当前聊天、指令或行动
     const { error: messageError } = await supabase.from("messages").insert({
       room_id: payload.room.id,
       player_id: body.playerId || null,
@@ -179,20 +216,28 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
         .eq("id", latest.room.id);
       if (error) throw error;
 
+      // 阶段重置为 1
+      const resetState = { ...latest.state, stage: 1 };
+      await supabase
+        .from("game_states")
+        .update({ state: resetState, updated_at: new Date().toISOString() })
+        .eq("room_id", latest.room.id);
+
       await addSystemMessage(
         latest.room.id,
-        `游戏开始！\n当前是第 ${latest.state.turn} 回合。每回合内由双亲自由辩论并在下方点击进行行动选择，系统将自动限制度数并全自动结束回合、触发下一轮危机事件。不再需要手动索取事件或回合转换。`,
+        "游戏开始！\n每回合为一个年度，划分为3个关联的发展阶段。在此期间玩家可以进行任意角色扮演，只有点击行动选项才算提交行动并推进阶段。第三阶段行动后将自动结算当前年份指标。",
         "system",
       );
 
-      // 开始游戏第一步：立即自动帮玩家生成开天辟地的首个随机事件！
+      // 开始首个阶段的第一案
+      latest.state = resetState;
       await triggerAutoRandomEvent(latest.room.id, latest);
       
       const payloadWithEvent = await loadRoomPayload(code);
       return NextResponse.json({ ok: true, payload: payloadWithEvent });
     }
 
-    // 2. 指令：手动强制结算 (End Turn - 留作后备支持/兼容，但已在按钮除去)
+    // 2. 指令：手动强制结算 (End Turn)
     if (command === "end_turn") {
       await executeEndAndNewTurn(latest.room.id, latest, code);
       const payloadEnded = await loadRoomPayload(code);
@@ -201,7 +246,7 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
 
     // 3. 指令：对话推进 (Advance Story)
     if (command === "advance_story") {
-      await addSystemMessage(latest.room.id, "正在根据对话内容推进剧情……", "thinking");
+      await addSystemMessage(latest.room.id, "正在根据最近的扮演讨论提炼剧情……", "thinking");
       const storyText = await callOpenRouter({
         kind: "advance",
         setup: latest.setup,
@@ -227,38 +272,23 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       return NextResponse.json({ ok: true, payload: nextPayload });
     }
 
-    // ==========================================
-    // 🌟 全自主动力轮次控制核心机（智囊拦截与往合结算）
-    // ==========================================
-    // 我们在此处检测目前本回合中玩家们已经发送了多少条行动/聊天历史：
-    if (payload.room.status === "active" && command === "chat") {
-      // 获取当前 turn 的所有有效的、非系统产生的、是由玩家参与的对话记录
-      // （例如含有“选择”关键字、玩家聊天气泡等，或直接计算本回合开始后玩家所有的发言）
-      const { data: turnMessages } = await supabase
-        .from("messages")
-        .select("id, author, content")
-        .eq("room_id", latest.room.id)
-        .neq("author", "系统")
-        .neq("author", "AI主角")
-        .neq("author", "高维监视核")
-        .order("created_at", { ascending: false });
-
-      const playerActionsThisTurn = turnMessages ?? [];
-      const totalActions = playerActionsThisTurn.length;
-
-      // 如果当前刚好发生了 2 次行动（即两位玩家都表达了想法，或者各自做了一次大动作）：
-      if (totalActions === 2) {
-        // 在当前聊天后，及时由系统提醒，告知准备限期结束
-        await addSystemMessage(latest.room.id, "📢 双亲意见收集成功！下次行动后，本回合将自动关闭并进行阶段复盘总结。", "system");
-      } 
-      // 如果消息动作数已经 >= 3，代表玩家在得到提示后迈出了终极步伐：直接在后台全自动促成结束回合和过渡！
-      else if (totalActions >= 3) {
+    // 5. 🌟 行动触发推进核心逻辑（A/B/C选择 或 自定义行动D 或 自定义剧情插入）
+    if (latest.room.status === "active" && command === "action") {
+      const currentStage = latest.state.stage || 1;
+      
+      if (currentStage >= 3) {
+        // 如果第三演化阶段行动已提交，进行终末结算并过年度
         await executeEndAndNewTurn(latest.room.id, latest, code);
-        const payloadAutoEnded = await loadRoomPayload(code);
-        return NextResponse.json({ ok: true, payload: payloadAutoEnded });
+      } else {
+        // 否则仅推进对应内部阶段 (1 -> 2, 2 -> 3)
+        await advanceStage(latest.room.id, latest, code);
       }
+      
+      const payloadAdvanced = await loadRoomPayload(code);
+      return NextResponse.json({ ok: true, payload: payloadAdvanced });
     }
 
+    // 正常聊天 (command === "chat") 仅作为角色扮演展示，不促成阶段/回合推进
     const finalPayload = await loadRoomPayload(code);
     return NextResponse.json({ ok: true, payload: finalPayload });
   } catch (error) {

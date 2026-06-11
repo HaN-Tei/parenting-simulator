@@ -26,18 +26,22 @@ function formatDateTime(value: string) {
   try { return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
 }
 function roleLabel(role?: string) { return role === "parent_a" ? "双亲A" : role === "parent_b" ? "双亲B" : role || "未绑定角色"; }
+
+// 阶段标签函数
 function phaseLabel(state: RoomPayload["state"]) {
   if (state.phase === "pregnancy") return `孕期第 ${Math.min(state.turn, 2)} / 2 回合`;
   if (state.phase === "birth") return "生产事件";
   if (state.phase.startsWith("child_age_")) return `孩子 ${state.year} 岁`;
   return state.phase;
 }
+
 function savePhaseLabel(save: RoomSaveSummary) {
   if (save.phase === "pregnancy") return "孕期";
   if (save.phase === "birth") return "生产事件";
   if (save.phase.startsWith("child_age_")) return `孩子 ${save.year} 岁`;
   return save.phase;
 }
+
 function StatBar({ label, value, dangerHigh = false }: { label: string; value: number; dangerHigh?: boolean }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   const color = dangerHigh ? (v >= 70 ? "bg-red-500" : v >= 40 ? "bg-amber-500" : "bg-emerald-500") : (v >= 70 ? "bg-emerald-500" : v >= 40 ? "bg-amber-500" : "bg-red-500");
@@ -61,6 +65,7 @@ export default function Home() {
   const [parentBJob, setParentBJob] = useState("");
   const [parentBPregnancyRole, setParentBPregnancyRole] = useState("非怀孕方");
   const [parentB, setParentB] = useState("");
+  const [pregnancyOrigin, setPregnancyOrigin] = useState(""); // 怀孕背景描述
   const [world, setWorld] = useState("现实向");
   const [myBubbleColor, setMyBubbleColor] = useState(defaultColors.my);
   const [otherBubbleColor, setOtherBubbleColor] = useState(defaultColors.other);
@@ -68,8 +73,9 @@ export default function Home() {
   const [aiBubbleColor, setAiBubbleColor] = useState(defaultColors.ai);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [customStory, setCustomStory] = useState(""); // 自定义剧情插入
+  const [currentStage, setCurrentStage] = useState(1); // 当前阶段 (1-3)
 
-  // 调节字号 (font-size) 与深色模式 (dark mode) 控制项
   const [fontSize, setFontSize] = useState<"small" | "base" | "large" | "huge">("base");
   const [darkMode, setDarkMode] = useState(false);
 
@@ -152,7 +158,6 @@ export default function Home() {
   }
 
   function textContrastColor(hexBg: string) {
-    // 自动测算气泡背景明度以确保高级的色彩和对比度可读性
     try {
       const clean = hexBg.replace("#", "");
       const r = parseInt(clean.substring(0, 2), 16);
@@ -167,39 +172,145 @@ export default function Home() {
 
   async function createRoom() {
     setBusy(true); setError("");
-    try { const data = await apiPost("/api/rooms", { displayName }); if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "创建失败"); setPayload(data.payload); applySetup(data.payload); setSetupDraftDirty(false); setRoomCode(data.payload.room.room_code); setPlayerId(data.playerId); setSaves([]); localStorage.setItem("parenting.roomCode", data.payload.room.room_code); localStorage.setItem("parenting.playerId", data.playerId); localStorage.setItem("parenting.displayName", displayName); } catch (err) { setError(err instanceof Error ? err.message : "创建失败"); } finally { setBusy(false); }
+    try { 
+      const data = await apiPost("/api/rooms", { displayName, pregnancyOrigin }); 
+      if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "创建失败"); 
+      setPayload(data.payload); 
+      applySetup(data.payload); 
+      setSetupDraftDirty(false); 
+      setRoomCode(data.payload.room.room_code); 
+      setPlayerId(data.playerId); 
+      setSaves([]); 
+      localStorage.setItem("parenting.roomCode", data.payload.room.room_code); 
+      localStorage.setItem("parenting.playerId", data.playerId); 
+      localStorage.setItem("parenting.displayName", displayName); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "创建失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function joinRoom() {
     setBusy(true); setError("");
-    try { const data = await apiPost("/api/rooms/join", { code: joinCode, displayName }); if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "加入失败"); setPayload(data.payload); applySetup(data.payload); setSetupDraftDirty(false); setRoomCode(data.payload.room.room_code); setPlayerId(data.playerId); localStorage.setItem("parenting.roomCode", data.payload.room.room_code); localStorage.setItem("parenting.playerId", data.playerId); localStorage.setItem("parenting.displayName", displayName); refreshSaves(data.payload.room.room_code); } catch (err) { setError(err instanceof Error ? err.message : "加入失败"); } finally { setBusy(false); }
+    try { 
+      const data = await apiPost("/api/rooms/join", { code: joinCode, displayName }); 
+      if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "加入失败"); 
+      setPayload(data.payload); 
+      applySetup(data.payload); 
+      setSetupDraftDirty(false); 
+      setRoomCode(data.payload.room.room_code); 
+      setPlayerId(data.playerId); 
+      localStorage.setItem("parenting.roomCode", data.payload.room.room_code); 
+      localStorage.setItem("parenting.playerId", data.playerId); 
+      localStorage.setItem("parenting.displayName", displayName); 
+      refreshSaves(data.payload.room.room_code); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "加入失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function saveSetup() {
-    if (!activeCode) return; setBusy(true); setError("");
-    try { const data = await apiPost(`/api/rooms/${activeCode}/setup`, { parentAName, parentAJob, parentAPregnancyRole, parentA, parentBName, parentBJob, parentBPregnancyRole, parentB, world }); if (!data.ok || !data.payload) throw new Error(data.error || "保存失败"); setPayload(data.payload); setSetupDraftDirty(false); } catch (err) { setError(err instanceof Error ? err.message : "保存失败"); } finally { setBusy(false); }
+    if (!activeCode) return; 
+    setBusy(true); 
+    setError("");
+    try { 
+      const data = await apiPost(`/api/rooms/${activeCode}/setup`, { parentAName, parentAJob, parentAPregnancyRole, parentA, parentBName, parentBJob, parentBPregnancyRole, parentB, world }); 
+      if (!data.ok || !data.payload) throw new Error(data.error || "保存失败"); 
+      setPayload(data.payload); 
+      setSetupDraftDirty(false); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "保存失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function createSave() {
-    const name = window.prompt("请输入存档名称", `第${payload?.state.turn ?? ""}回合存档`); if (!activeCode || !name?.trim()) return;
+    const name = window.prompt("请输入存档名称", `第${payload?.state.turn ?? ""}回合存档`); 
+    if (!activeCode || !name?.trim()) return;
     setBusy(true); setError("");
-    try { const data = await apiPost(`/api/rooms/${activeCode}/saves`, { name: name.trim(), playerId, author: displayName }); if (!data.ok || !data.payload) throw new Error(data.error || "保存存档失败"); setPayload(data.payload); await refreshSaves(activeCode); } catch (err) { setError(err instanceof Error ? err.message : "保存存档失败"); } finally { setBusy(false); }
+    try { 
+      const data = await apiPost(`/api/rooms/${activeCode}/saves`, { name: name.trim(), playerId, author: displayName }); 
+      if (!data.ok || !data.payload) throw new Error(data.error || "保存存档失败"); 
+      setPayload(data.payload); 
+      await refreshSaves(activeCode); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "保存存档失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function loadSave(save: RoomSaveSummary) {
     if (!activeCode || !window.confirm(`确定读取存档「${save.name}」吗？当前进度会回到第 ${save.turn} 回合，聊天记录会保留。`)) return;
     setBusy(true); setError("");
-    try { const data = await apiPost(`/api/rooms/${activeCode}/saves/${save.id}/load`, { playerId, author: displayName }); if (!data.ok || !data.payload) throw new Error(data.error || "读取存档失败"); setPayload(data.payload); applySetup(data.payload); setSetupDraftDirty(false); } catch (err) { setError(err instanceof Error ? err.message : "读取存档失败"); } finally { setBusy(false); }
+    try { 
+      const data = await apiPost(`/api/rooms/${activeCode}/saves/${save.id}/load`, { playerId, author: displayName }); 
+      if (!data.ok || !data.payload) throw new Error(data.error || "读取存档失败"); 
+      setPayload(data.payload); 
+      applySetup(data.payload); 
+      setSetupDraftDirty(false); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "读取存档失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function sendMessage(text?: string) {
-    const finalText = (text ?? content).trim(); if (!activeCode || !finalText) return;
+    const finalText = (text ?? content).trim(); 
+    if (!activeCode || !finalText) return;
     setBusy(true); setError("");
-    try { const data = await apiPost(`/api/rooms/${activeCode}/message`, { playerId, author: displayName, content: finalText }); if (!data.ok || !data.payload) throw new Error(data.error || "发送失败"); setPayload(data.payload); if (!text) setContent(""); } catch (err) { setError(err instanceof Error ? err.message : "发送失败"); } finally { setBusy(false); }
+    try { 
+      const data = await apiPost(`/api/rooms/${activeCode}/message`, { playerId, author: displayName, content: finalText }); 
+      if (!data.ok || !data.payload) throw new Error(data.error || "发送失败"); 
+      setPayload(data.payload); 
+      if (!text) setContent(""); 
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "发送失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+  
   async function sendActionAndAdvance(action: string) {
-    if (!activeCode || !action.trim()) return; setBusy(true); setError("");
+    if (!activeCode || !action.trim()) return; 
+    setBusy(true); 
+    setError("");
     try {
       const actionData = await apiPost(`/api/rooms/${activeCode}/message`, { playerId, author: displayName, content: `行动选择：${action.trim()}` });
       if (!actionData.ok || !actionData.payload) throw new Error(actionData.error || "行动提交失败");
       setPayload(actionData.payload);
-    } catch (err) { setError(err instanceof Error ? err.message : "行动提交失败"); } finally { setBusy(false); }
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : "行动提交失败"); 
+    } finally { 
+      setBusy(false); 
+    }
   }
+
+  // 插入自定义剧情
+  async function insertCustomStory() {
+    if (!activeCode || !customStory.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const data = await apiPost(`/api/rooms/${activeCode}/message`, { 
+        playerId, 
+        author: displayName, 
+        content: `自定义剧情：${customStory.trim()}` 
+      });
+      if (!data.ok || !data.payload) throw new Error(data.error || "插入失败");
+      setPayload(data.payload);
+      setCustomStory("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "插入失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+  
   function leaveLocalRoom() {
     localStorage.removeItem("parenting.roomCode");
     localStorage.removeItem("parenting.playerId");
@@ -209,6 +320,7 @@ export default function Home() {
     setSaves([]);
     resetSetupDraft();
   }
+  
   function resetSetupDraft() {
     setParentAName("");
     setParentAJob("");
@@ -222,7 +334,6 @@ export default function Home() {
     setSetupDraftDirty(false);
   }
 
-  // 映射字号的 CSS 类样式及其对应字体
   const FONT_CLASSES = {
     small: "text-xs md:text-sm",
     base: "text-sm md:text-base",
@@ -230,7 +341,6 @@ export default function Home() {
     huge: "text-lg md:text-xl",
   };
 
-  // 全局的夜间模式/日间模式主题包
   const themeBgClass = darkMode ? "bg-[#111827] text-slate-100" : "bg-[#fafaf9] text-[#1c1917]";
   const cardBgClass = darkMode ? "bg-slate-900 border border-slate-800" : "bg-white ring-1 ring-black/5";
   const selectBorderClass = darkMode ? "bg-slate-900 border border-slate-800 text-white" : "bg-white border text-[#1c1917]";
@@ -240,7 +350,6 @@ export default function Home() {
 
   return (
     <>
-      {/* 导入开源高雅思源黑体（Noto Sans SC），使中文字体更美观 */}
       <style dangerouslySetInnerHTML={{ __html: `
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
         .sans-story {
@@ -253,15 +362,14 @@ export default function Home() {
           
           <header className={`rounded-3xl p-6 shadow-sm transition-colors duration-200 flex flex-col md:flex-row justify-between gap-4 items-start md:items-center ${cardBgClass}`}>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500">双用户同步 AI 育儿模拟器（精简全自动版）</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500">双用户同步 AI 育儿模拟器</p>
               <h1 className="mt-2 text-2xl md:text-3.5xl font-extrabold tracking-tight">从怀孕开始的共同养育故事</h1>
-              <p className="mt-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">双亲A/B同步联机；孕期2回合，生产独立，1年=4回合。自动化行动感应，指标秒级即时反应。</p>
+              <p className="mt-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">三阶段回合制：每回合分为A/B/C三个阶段。只有点击选项才算行动。</p>
             </div>
             
-            {/* UI 控制面板：主题切换 ＆ 字号微调 */}
             <div className={`p-4 rounded-2xl flex flex-wrap gap-4 items-center ${darkMode ? 'bg-slate-950/60' : 'bg-stone-50'}`}>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">字号大小</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">字号大小</span>
                 <div className="flex bg-slate-300/30 rounded-lg p-0.5 text-xs font-semibold">
                   {(["small", "base", "large", "huge"] as const).map((sz) => (
                     <button
@@ -276,7 +384,7 @@ export default function Home() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">界面主题</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">界面主题</span>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-800"
@@ -291,8 +399,9 @@ export default function Home() {
             <section className="grid gap-6 md:grid-cols-2">
               <div className={`rounded-3xl p-6 shadow-sm ${cardBgClass}`}>
                 <h2 className="text-xl font-black">创建房间</h2>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">创建者自动绑定为双亲A。</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">创建者自动绑定为双亲A。可填写怀孕背景。</p>
                 <input className={`mt-5 w-full rounded-2xl px-4 py-3.5 text-sm font-medium ${inputBorderClass}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="请输入您的昵称" />
+                <textarea className={`mt-3 w-full rounded-2xl px-4 py-3 text-sm ${inputBorderClass}`} value={pregnancyOrigin} onChange={(e) => setPregnancyOrigin(e.target.value)} placeholder="可选：描述如何怀上孩子的背景故事（最多200字）" rows={3} />
                 <button className="mt-5 w-full rounded-2xl bg-amber-600 hover:bg-amber-500 px-4 py-4 font-bold text-white transition-all disabled:opacity-50" disabled={busy} onClick={createRoom}>创建新房间</button>
               </div>
               
@@ -340,7 +449,7 @@ export default function Home() {
                 <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
                   <h2 className="text-lg font-black">自定义气泡色彩</h2>
                   <p className="mt-1 text-[10px] text-slate-400">在游玩中微调自己的气泡色调：</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs font-semibold">{[["我的气泡", myBubbleColor, setMyBubbleColor], ["对方气泡", otherBubbleColor, setOtherBubbleColor], ["系统消息", systemBubbleColor, setSystemBubbleColor], ["AI旁白", aiBubbleColor, setAiBubbleColor]].map(([label, value, setter]) => <label key={String(label)} className="flex flex-col gap-1.5 bg-slate-400/5 p-2 rounded-xl border border-slate-600/5"><span>{String(label)}</span><input className="h-6 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={String(value)} onChange={(e) => (setter as (v: string) => void)(e.target.value)} /></label>)}</div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs font-semibold">{["我的气泡", "对方气泡", "系统消息", "AI旁白"].map((label, i) => { const value = i === 0 ? myBubbleColor : i === 1 ? otherBubbleColor : i === 2 ? systemBubbleColor : aiBubbleColor; const setter = i === 0 ? setMyBubbleColor : i === 1 ? setOtherBubbleColor : i === 2 ? setSystemBubbleColor : setAiBubbleColor; return <label key={label} className="flex flex-col gap-1.5 bg-slate-400/5 p-2 rounded-xl border border-slate-600/5"><span>{label}</span><input className="h-6 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={value} onChange={(e) => setter(e.target.value)} /></label>; })}</div>
                 </section>
 
                 <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
@@ -356,11 +465,10 @@ export default function Home() {
                 <div className="border-b border-slate-300/10 p-5 flex flex-col sm:flex-row justify-between gap-3 items-start sm:items-center">
                   <div>
                     <h2 className="text-lg font-black flex items-center gap-1.5">📖 共同养育日记</h2>
-                    <p className="mt-1 text-xs text-slate-500">房间连接码：<span className="font-mono font-bold text-amber-500 select-all">{payload.room.room_code}</span>。AI输出会切分为独立的消息气泡。</p>
+                    <p className="mt-1 text-xs text-slate-500">房间连接码：<span className="font-mono font-bold text-amber-500 select-all">{payload.room.room_code}</span>。三阶段回合：只有点击选项才算行动。</p>
                   </div>
                 </div>
 
-                {/* 核心气泡滚动中心：自适应字号 ＆ 经典思源黑体（Sans Serif）注入 */}
                 <div className={`flex-1 h-[680px] overflow-y-auto p-5 space-y-4 sans-story ${FONT_CLASSES[fontSize]}`}>
                   {payload.messages.map((m) => {
                     const isMyMsg = m.player_id === playerId;
@@ -385,12 +493,12 @@ export default function Home() {
 
                 <div className="border-t border-slate-300/10 p-5">
                   <div className={`mb-4 rounded-2xl p-4 ${darkMode ? "bg-slate-950/60" : "bg-amber-500/5"}`}>
-                    <p className="mb-2 text-xs font-bold tracking-widest text-amber-500 uppercase">🎯 抉择与行动方向</p>
-                    <div className="flex flex-wrap gap-2.5">
+                    <p className="mb-2 text-xs font-bold tracking-widest text-amber-500 uppercase">🎯 当前阶段：{payload?.state.stage || 1}/3</p>
+                    <div className="flex overflow-x-auto pb-2 gap-2.5 flex-nowrap scrollbar-thin scrollbar-thumb-amber-600/40 max-w-full">
                       {["A", "B", "C", "D"].map((c) => (
                         <button
                           key={c}
-                          className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-4 py-2 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer"
+                          className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
                           disabled={busy}
                           onClick={() => sendActionAndAdvance(c)}
                         >
@@ -398,7 +506,7 @@ export default function Home() {
                         </button>
                       ))}
                       <button
-                        className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-4 py-2 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer"
+                        className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-5 py-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer flex-shrink-0"
                         disabled={busy}
                         onClick={() => {
                           const custom = window.prompt("请输入双亲自定义行动描述：");
@@ -408,9 +516,24 @@ export default function Home() {
                         ✍️ 自定义行动
                       </button>
                     </div>
-                    <p className="mt-3 text-[10px] text-slate-400 leading-relaxed">
-                      💡 提示：输入观点可以和伴侣商量。双方各完成大方向表达后，回合就会全自动结算并拉开下一年份的随机故事篇章。
-                    </p>
+                  </div>
+
+                  {/* 自定义剧情插入 */}
+                  <div className="mb-4 p-3 bg-purple-500/5 rounded-xl border border-purple-500/10">
+                    <p className="text-xs font-bold text-purple-500 mb-2">✨ 插入自定义剧情</p>
+                    <textarea 
+                      className={`w-full h-16 rounded-lg px-3 py-2 text-xs ${inputBorderClass}`}
+                      value={customStory} 
+                      onChange={(e) => setCustomStory(e.target.value)}
+                      placeholder="输入要插入的剧情片段（不少于50字）..."
+                    />
+                    <button 
+                      className="mt-2 text-xs font-bold underline text-purple-500"
+                      disabled={busy || customStory.length < 50}
+                      onClick={insertCustomStory}
+                    >
+                      插入剧情
+                    </button>
                   </div>
 
                   <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-300/10 pb-4">

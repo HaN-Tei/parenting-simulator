@@ -16,6 +16,7 @@ export type GameState = {
   turn: number;
   year: number;
   phase: string;
+  stage: number; // 1 | 2 | 3
   child: {
     health: number;
     security: number;

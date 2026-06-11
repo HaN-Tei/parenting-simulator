@@ -25,6 +25,7 @@ export async function callOpenRouter(params: {
   const title = "Parenting Simulator";
   const referer = process.env.APP_URL || "http://localhost:3000";
 
+  const stage = params.state.stage || 1;
   const recent = params.recentMessages
     .slice(-30)
     .map((m) => `${m.author}：${m.content}`)
@@ -32,19 +33,31 @@ export async function callOpenRouter(params: {
 
   const task =
     params.kind === "event"
-      ? "现在开始新的一轮。请根据当前设定、状态和最近聊天，生成一个本回合开头事件，并在本回合事件中附带一些有意义的属性改变。不要替玩家做选择。"
+      ? `现在开启第 ${params.state.turn} 回合的第 ${stage}/3 阶段演化。
+请根据当前设定、状态和最近玩家的扮演，生成一个情节丰富（最少150字）的第 ${stage} 阶段育儿事件。
+你的讲述应该极为生动饱满，注重真实育儿细节，不要使用任何分割线、破折号或分隔符。
+请提供4个高质量的深度行动选择 A、B、C 和 D（不要草率简化），其中 D 应与之前的上下文或角色的扮演有关。`
       : params.kind === "advance"
-        ? "现在用户明确要求『根据对话内容推进剧情』。请根据最近对话、玩家已选择/输入的行动和当前状态推进剧情。并在回复中结算采纳了哪些行动，且附带属性的增加/减少。"
-        : "现在用户明确输入了『结束回合』。请根据本回合行动和最近聊天，生成本期成长总结及大结局暗示。不要生成新的随机事件，只做总结，并包含属性修正。";
+        ? `玩家已经选择了行动或插入了剧情，请根据这些行动或自定义剧情推进新情节（剧情描述需满150字，极为生动饱满）。
+当前属于第 ${params.state.turn} 回合的第 ${stage}/3 阶段推进。
+注意：不要替玩家单方面做出抉择或决定，不要使用任何多余的分隔符。
+请给出新的深度后续行动选择 A、B、C、D。其中 D 选择需要高度契合玩家当前情境和自定义输入。`
+        : `回合阶段性总结：回合全部3个阶段均已完结，请做这一年的回合终总结（文字描述也需详尽丰富，150字以上）。
+总结该年份（第 ${params.state.turn} 回合，孩子 ${params.state.year} 岁）双亲的各项核心抉择对孩子成长的深远客观后果、家庭生活状态的影响以及下个阶段的展望。属性增减需要整合在下方的统计协议里。`;
 
-  const systemPrompt = `你是一个中文育儿模拟器主持人。\n\n规则：\n- 这是叙事模拟，不仅要有好的剧情，还要根据因果关系修改家庭和孩子的各项指标数值。\n- 从怀孕阶段开始：孕期 ${PREGNANCY_TURNS} 回合，生产是独立事件，出生后一年 = ${TURNS_PER_YEAR} 回合。\n- AI 只负责叙述外部事件、客观结果和数值变化，人物的主观言行和反应交给玩家输入。\n- 不要写“某角色感到/决定/回应/反应是……”，角色反应交给玩家输入。\n- 输出必须分成多个短段，每段用一个空行分隔；每个段尽量不超过 150 字。\n- 严禁输出 Markdown 表格。\n- 语言：简体中文。\n\n## 🔮 属性变化控制协议（非常重要）：\n在你的输出【最末尾】，必须额外附上指标增减的具体数额，格式必须完全使用以下标记（不要漏掉任何括号）：\n[STATS_UPDATE]\n{\n  "child": {\n    "health": 变化值（整数，如-5, 10, 0）,\n    "security": 变化值,\n    "curiosity": 变化值,\n    "social": 变化值,\n    "learning": 变化值,\n    "mood": 变化值\n  },\n  "family": {\n    "money": 变化值,\n    "time": 变化值,\n    "stability": 变化值,\n    "support": 变化值,\n    "pressure": 变化值\n  }\n}\n[STATS_UPDATE_END]\n\n数值参考：正常事件产生 5 到 15 点的属性变化即可；压力增加一般是负面影响。数值只影响上面提供的键名。`;
+  const systemPrompt = `你是一个专业的中文硬核育儿模拟器主持人。\n\n设计哲学：\n- 深度叙事，拒绝过度简化和苍白文字。字词有厚度，逻辑严密，文字优美。
+- 一回合内分为三个连续的关联阶段（A/B/C三个子阶段），每一阶段的危机和机遇都会层层递进（本回合当前阶段：第 ${stage}/3 阶段）。
+- 不要为玩家做任何定性决定或表达思想状态，玩家拥有100%自主的角色扮演权。
+- 气泡内容不能太少。单次返回中，叙述文必须包含一个长达150-300字、饱含现实质感的整段说明，不能零碎，也不能使用任何横线、破折号或“---”分隔符。
+- 选项列表（A/B/C/D）必须完整写出并提供长句解释，不要缩水。
+- 从怀孕阶段开始：主线孕期 2 回合，生产是独立事件，出生后一年 = 4 回合。\n- 自始至终使用简体中文。不需要输出 Markdown 表格。\n\n## 🔮 属性变化控制协议（非常重要）：\n在你的输出【最末尾】，必须额外附上指标增减的具体数额，格式必须完全使用以下标记（不要漏掉任何括号）：\n[STATS_UPDATE]\n{\n  "child": {\n    "health": 变化值（整数，如-5, 10, 0）,\n    "security": 变化值,\n    "curiosity": 变化值,\n    "social": 变化值,\n    "learning": 变化值,\n    "mood": 变化值\n  },\n  "family": {\n    "money": 变化值,\n    "time": 变化值,\n    "stability": 变化值,\n    "support": 变化值,\n    "pressure": 变化值\n  }\n}\n[STATS_UPDATE_END]\n\n数值参考：正常事件产生 5 到 15 点的属性变化即可；数值只能更新上面提供的属性。`;
 
   const outputFormat =
     params.kind === "event"
-      ? `事件标题：...\n\n事件描述：...\n\n可选行动：\nA. ...\nB. ...\nC. ...\nD. ...\n\n潜在影响：...\n\n等待两位玩家说明各自行动。`
+      ? `事件描述（整段饱满长文说明）：...\n\nA. ...\nB. ...\nC. ...\nD. ...\n\n潜在影响：...`
       : params.kind === "advance"
-        ? `剧情推进：...\n\n已采纳的玩家行动：...\n\n当前变化：...\n\n新的行动方向：\nA. ...\nB. ...\nC. ...\nD. ...\n\n[STATS_UPDATE]\n{\n  "child": {"health": 0, "security": 0, "curiosity": 5, "social": 0, "learning": 0, "mood": 5},\n  "family": {"money": -5, "time": -10, "stability": 0, "support": 0, "pressure": 5}\n}\n[STATS_UPDATE_END]`
-        : `回合总结：...\n\n玩家行动造成的客观结果：...\n\n孩子/孕期影响：...\n\n家庭影响：...\n\n[STATS_UPDATE]\n{\n  "child": {"health": 5, "security": 5, "curiosity": 0, "social": 5, "learning": 0, "mood": -5},\n  "family": {"money": 0, "time": 5, "stability": 10, "support": 5, "pressure": -10}\n}\n[STATS_UPDATE_END]`;
+        ? `剧情推进（饱满整段描述及客观结果）：...\n\n已采纳的玩家行动 / 插入剧情：...\n\n接下来的新挑战行动选择：\nA. ...\nB. ...\nC. ...\nD. ...\n\n[STATS_UPDATE]\n{\n  "child": {"health": 0, "security": 0, "curiosity": 5, "social": 0, "learning": 0, "mood": 5},\n  "family": {"money": -5, "time": -10, "stability": 0, "support": 0, "pressure": 5}\n}\n[STATS_UPDATE_END]`
+        : `回合阶段性总结（整段叙述，富含深度剖析）：...\n\n孩子/孕期整体评价：...\n\n家庭现实生活影响深度反思：...\n\n[STATS_UPDATE]\n{\n  "child": {"health": 5, "security": 5, "curiosity": 0, "social": 5, "learning": 0, "mood": -5},\n  "family": {"money": 0, "time": 5, "stability": 10, "support": 5, "pressure": -10}\n}\n[STATS_UPDATE_END]`;
 
   const userPrompt = `任务：${task}\n\n当前状态：\n${statusText(params.state, params.setup)}\n\n最近聊天/日志：\n${recent || "暂无"}\n\n输出格式：\n${outputFormat}`;
 
@@ -63,7 +76,7 @@ export async function callOpenRouter(params: {
         { role: "user", content: userPrompt },
       ],
       temperature: params.kind === "settlement" ? 0.5 : 0.85,
-      max_tokens: 1200,
+      max_tokens: 1500,
     }),
   });
 
