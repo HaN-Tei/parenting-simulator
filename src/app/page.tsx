@@ -5,7 +5,7 @@ import type { RoomPayload, RoomSaveSummary } from "@/lib/types";
 
 type ApiResponse = { ok: boolean; error?: string; playerId?: string; payload?: RoomPayload; saves?: RoomSaveSummary[] };
 
-const defaultColors = { my: "#dbeafe", other: "#f1f5f9", system: "#fef3c7", ai: "#dcfce7" };
+const defaultColors = { my: "#3b82f6", other: "#e2e8f0", system: "#fcd34d", ai: "#10b981" };
 const statNames: Record<string, string> = {
   health: "健康", security: "安全感", curiosity: "好奇心", social: "社交", learning: "学习", mood: "情绪",
   money: "金钱", time: "时间", stability: "稳定度", support: "支持网络", pressure: "压力",
@@ -41,7 +41,7 @@ function savePhaseLabel(save: RoomSaveSummary) {
 function StatBar({ label, value, dangerHigh = false }: { label: string; value: number; dangerHigh?: boolean }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   const color = dangerHigh ? (v >= 70 ? "bg-red-500" : v >= 40 ? "bg-amber-500" : "bg-emerald-500") : (v >= 70 ? "bg-emerald-500" : v >= 40 ? "bg-amber-500" : "bg-red-500");
-  return <div><div className="mb-1 flex justify-between text-xs"><span>{label}</span><span>{v}</span></div><div className="h-2 rounded-full bg-slate-100"><div className={`h-full rounded-full ${color}`} style={{ width: `${v}%` }} /></div></div>;
+  return <div><div className="mb-1 flex justify-between text-xs font-semibold"><span>{label}</span><span>{v}</span></div><div className="h-2 rounded-full bg-slate-200/50"><div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${v}%` }} /></div></div>;
 }
 
 export default function Home() {
@@ -69,6 +69,10 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  // 新增：调节字号 (font-size) 与深色模式 (dark mode) 控制项
+  const [fontSize, setFontSize] = useState<"small" | "base" | "large" | "huge">("base");
+  const [darkMode, setDarkMode] = useState(false);
+
   const activeCode = roomCode || payload?.room.room_code || "";
   const currentPlayer = useMemo(() => payload?.players.find((p) => p.id === playerId) ?? null, [payload, playerId]);
   const currentRole = roleLabel(currentPlayer?.role);
@@ -89,6 +93,9 @@ export default function Home() {
     const savedOtherColor = localStorage.getItem("parenting.colors.other") || defaultColors.other;
     const savedSystemColor = localStorage.getItem("parenting.colors.system") || defaultColors.system;
     const savedAiColor = localStorage.getItem("parenting.colors.ai") || defaultColors.ai;
+    const savedFontSize = localStorage.getItem("parenting.fontSize") || "base";
+    const savedDarkMode = localStorage.getItem("parenting.darkMode") === "true";
+
     const timer = setTimeout(() => {
       if (savedCode) setRoomCode(savedCode);
       if (savedPlayerId) setPlayerId(savedPlayerId);
@@ -97,6 +104,8 @@ export default function Home() {
       setOtherBubbleColor(savedOtherColor);
       setSystemBubbleColor(savedSystemColor);
       setAiBubbleColor(savedAiColor);
+      setFontSize(savedFontSize as any);
+      setDarkMode(savedDarkMode);
     }, 0);
     return () => clearTimeout(timer);
   }, []);
@@ -106,7 +115,9 @@ export default function Home() {
     localStorage.setItem("parenting.colors.other", otherBubbleColor);
     localStorage.setItem("parenting.colors.system", systemBubbleColor);
     localStorage.setItem("parenting.colors.ai", aiBubbleColor);
-  }, [myBubbleColor, otherBubbleColor, systemBubbleColor, aiBubbleColor]);
+    localStorage.setItem("parenting.fontSize", fontSize);
+    localStorage.setItem("parenting.darkMode", String(darkMode));
+  }, [myBubbleColor, otherBubbleColor, systemBubbleColor, aiBubbleColor, fontSize, darkMode]);
 
   useEffect(() => {
     if (!activeCode) return;
@@ -139,6 +150,21 @@ export default function Home() {
     if (message.author === "系统" || message.player_id === null) return systemBubbleColor;
     return message.player_id === playerId ? myBubbleColor : otherBubbleColor;
   }
+
+  function textContrastColor(hexBg: string) {
+    // 自动测算气泡背景明度以确保高级的色彩和对比度可读性
+    try {
+      const clean = hexBg.replace("#", "");
+      const r = parseInt(clean.substring(0, 2), 16);
+      const g = parseInt(clean.substring(2, 4), 16);
+      const b = parseInt(clean.substring(4, 6), 16);
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      return brightness > 140 ? "#0f172a" : "#ffffff";
+    } catch {
+      return "#0f172a";
+    }
+  }
+
   async function createRoom() {
     setBusy(true); setError("");
     try { const data = await apiPost("/api/rooms", { displayName }); if (!data.ok || !data.payload || !data.playerId) throw new Error(data.error || "创建失败"); setPayload(data.payload); applySetup(data.payload); setSetupDraftDirty(false); setRoomCode(data.payload.room.room_code); setPlayerId(data.playerId); setSaves([]); localStorage.setItem("parenting.roomCode", data.payload.room.room_code); localStorage.setItem("parenting.playerId", data.playerId); localStorage.setItem("parenting.displayName", displayName); } catch (err) { setError(err instanceof Error ? err.message : "创建失败"); } finally { setBusy(false); }
@@ -171,9 +197,8 @@ export default function Home() {
     try {
       const actionData = await apiPost(`/api/rooms/${activeCode}/message`, { playerId, author: displayName, content: `行动选择：${action.trim()}` });
       if (!actionData.ok || !actionData.payload) throw new Error(actionData.error || "行动提交失败");
-      const advanceData = await apiPost(`/api/rooms/${activeCode}/message`, { playerId, author: displayName, content: "根据对话内容推进剧情" });
-      if (!advanceData.ok || !advanceData.payload) throw new Error(advanceData.error || "推进剧情失败"); setPayload(advanceData.payload);
-    } catch (err) { setError(err instanceof Error ? err.message : "推进剧情失败"); } finally { setBusy(false); }
+      setPayload(actionData.payload);
+    } catch (err) { setError(err instanceof Error ? err.message : "行动提交失败"); } finally { setBusy(false); }
   }
   function leaveLocalRoom() {
     localStorage.removeItem("parenting.roomCode");
@@ -197,21 +222,240 @@ export default function Home() {
     setSetupDraftDirty(false);
   }
 
-  return <main className="min-h-screen bg-[#f7f2e9] text-slate-900"><div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6">
-    <header className="rounded-3xl bg-white/85 p-6 shadow-sm ring-1 ring-black/5"><p className="text-sm font-semibold text-amber-700">双用户同步 AI 育儿模拟器</p><h1 className="mt-2 text-3xl font-bold">从怀孕开始的共同养育故事</h1><p className="mt-3 text-sm text-slate-600">玩家绑定双亲A/B；孕期2回合，生产独立事件，出生后1年=4回合。AI事件分气泡输出，角色反应由玩家处理。</p></header>
-    {!payload ? <section className="grid gap-4 md:grid-cols-2">
-      <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><h2 className="text-xl font-bold">创建房间</h2><p className="mt-2 text-sm text-slate-500">创建者自动绑定为双亲A。</p><input className="mt-4 w-full rounded-2xl border px-4 py-3" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="昵称" /><button className="mt-4 w-full rounded-2xl bg-amber-600 px-4 py-3 font-bold text-white disabled:opacity-50" disabled={busy} onClick={createRoom}>创建新房间</button></div>
-      <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><h2 className="text-xl font-bold">加入房间</h2><p className="mt-2 text-sm text-slate-500">第二位玩家自动绑定为双亲B。</p><input className="mt-4 w-full rounded-2xl border px-4 py-3 uppercase" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="房间码" /><input className="mt-3 w-full rounded-2xl border px-4 py-3" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="昵称" /><button className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 font-bold text-white disabled:opacity-50" disabled={busy} onClick={joinRoom}>加入房间</button></div>
-    </section> : <div className="grid gap-5 xl:grid-cols-[390px_1fr]">
-      <aside className="flex flex-col gap-4">
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><div className="flex justify-between gap-3"><div><p className="text-sm text-slate-500">当前状态</p><h2 className="mt-1 text-lg font-bold">{statusLine}</h2><p className="mt-2 text-sm text-amber-700">你正在扮演：{currentRole}</p></div><button className="text-sm underline" onClick={leaveLocalRoom}>离开本机</button></div><div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm">{payload.players.map((p) => <p key={p.id}>{roleLabel(p.role)}：{p.display_name}{p.id === playerId ? "（你）" : ""}</p>)}</div></section>
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><h2 className="text-lg font-bold">属性面板</h2><p className="mt-1 text-xs text-slate-500">0-100；压力越高越危险。</p><h3 className="mt-4 mb-2 text-sm font-semibold">孩子 / 孕期</h3><div className="space-y-3">{Object.entries(payload.state.child).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} />)}</div><h3 className="mt-4 mb-2 text-sm font-semibold">家庭</h3><div className="space-y-3">{Object.entries(payload.state.family).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} dangerHigh={k === "pressure"} />)}</div></section>
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><div className="flex justify-between"><h2 className="text-lg font-bold">存档 / 读档</h2><button className="text-sm underline" disabled={busy} onClick={() => refreshSaves()}>刷新</button></div><button className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 font-bold text-white disabled:opacity-50" disabled={busy} onClick={createSave}>保存当前进度</button><div className="mt-4 space-y-2">{saves.length ? saves.map((s) => <div key={s.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><div className="flex justify-between gap-3"><div><p className="font-semibold">{s.name}</p><p className="mt-1 text-xs text-slate-500">第{s.turn}回合｜{savePhaseLabel(s)}｜{formatDateTime(s.createdAt)}｜{s.createdBy}</p></div><button className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200" disabled={busy} onClick={() => loadSave(s)}>读取</button></div></div>) : <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">暂无存档。</p>}</div></section>
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><h2 className="text-lg font-bold">气泡颜色</h2><div className="mt-4 grid grid-cols-2 gap-3 text-sm">{[["我的消息", myBubbleColor, setMyBubbleColor], ["对方消息", otherBubbleColor, setOtherBubbleColor], ["系统消息", systemBubbleColor, setSystemBubbleColor], ["AI叙述", aiBubbleColor, setAiBubbleColor]].map(([label, value, setter]) => <label key={String(label)} className="space-y-2"><span>{String(label)}</span><input className="h-10 w-full" type="color" value={String(value)} onChange={(e) => (setter as (v: string) => void)(e.target.value)} /></label>)}</div></section>
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5"><h2 className="text-lg font-bold">开局设定</h2><p className="mt-1 text-xs text-slate-500">双亲A/B与玩家绑定一致。</p><div className="mt-4 grid gap-3"><input className="rounded-2xl border px-4 py-3 text-sm" value={parentAName} onChange={(e) => setDirty(setParentAName, e.target.value)} placeholder="双亲A姓名" /><input className="rounded-2xl border px-4 py-3 text-sm" value={parentAJob} onChange={(e) => setDirty(setParentAJob, e.target.value)} placeholder="双亲A职业" /><select className="rounded-2xl border px-4 py-3 text-sm" value={parentAPregnancyRole} onChange={(e) => { setDirty(setParentAPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentBPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className="h-20 rounded-2xl border px-4 py-3 text-sm" value={parentA} onChange={(e) => setDirty(setParentA, e.target.value)} placeholder="双亲A补充设定" /><input className="rounded-2xl border px-4 py-3 text-sm" value={parentBName} onChange={(e) => setDirty(setParentBName, e.target.value)} placeholder="双亲B姓名" /><input className="rounded-2xl border px-4 py-3 text-sm" value={parentBJob} onChange={(e) => setDirty(setParentBJob, e.target.value)} placeholder="双亲B职业" /><select className="rounded-2xl border px-4 py-3 text-sm" value={parentBPregnancyRole} onChange={(e) => { setDirty(setParentBPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentAPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className="h-20 rounded-2xl border px-4 py-3 text-sm" value={parentB} onChange={(e) => setDirty(setParentB, e.target.value)} placeholder="双亲B补充设定" /><textarea className="h-20 rounded-2xl border px-4 py-3 text-sm" value={world} onChange={(e) => setDirty(setWorld, e.target.value)} placeholder="世界/家庭设定" /></div><button className="mt-4 w-full rounded-2xl bg-amber-600 px-4 py-3 font-bold text-white disabled:opacity-50" disabled={busy} onClick={saveSetup}>保存设定</button></section>
-      </aside>
-      <section className="rounded-3xl bg-white shadow-sm ring-1 ring-black/5"><div className="border-b p-5"><h2 className="text-lg font-bold">房间聊天与游戏日志</h2><p className="mt-1 text-sm text-slate-500">房间码 {payload.room.room_code}。AI内容会拆为多个气泡。</p></div><div className="flex h-[640px] flex-col gap-3 overflow-y-auto p-5">{payload.messages.map((m) => <article key={m.id} className={`rounded-2xl p-4 text-sm leading-6 shadow-sm ring-1 ring-black/5 ${m.player_id === playerId ? "ml-auto max-w-[85%]" : "mr-auto max-w-[92%]"}`} style={{ backgroundColor: bg(m) }}><div className="mb-1 flex justify-between gap-2 text-xs text-slate-500"><span>{m.author} · {m.kind}</span><span>{formatTime(m.created_at)}</span></div><p className="whitespace-pre-wrap">{m.content}</p></article>)}</div><div className="border-t p-5"><div className="mb-3 rounded-2xl bg-amber-50 p-3"><p className="mb-2 text-sm font-semibold text-amber-900">行动方向</p><div className="flex flex-wrap gap-2">{["A", "B", "C", "D"].map((c) => <button key={c} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 disabled:opacity-50" disabled={busy} onClick={() => sendActionAndAdvance(c)}>选择 {c}</button>)}<button className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 disabled:opacity-50" disabled={busy} onClick={() => { const custom = window.prompt("请输入自定义行动"); if (custom?.trim()) sendActionAndAdvance(`自定义行动：${custom.trim()}`); }}>自定义行动</button><button className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy} onClick={() => sendMessage("根据对话内容推进剧情")}>推进剧情</button></div><p className="mt-2 text-xs text-amber-800">角色反应由玩家输入，不由 AI 代写。</p></div><div className="mb-3 flex flex-wrap gap-2">{["开始游戏", "产生随机事件", "根据对话内容推进剧情", "结束回合", "查看状态"].map((cmd) => <button key={cmd} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => sendMessage(cmd)}>{cmd}</button>)}</div><div className="flex gap-2"><textarea className="h-20 flex-1 rounded-2xl border px-4 py-3 text-sm" value={content} onChange={(e) => setContent(e.target.value)} placeholder={`以${currentRole}身份输入聊天、行动或指令`} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendMessage(); }} /><button className="w-24 rounded-2xl bg-slate-900 px-4 py-3 font-bold text-white disabled:opacity-50" disabled={busy} onClick={() => sendMessage()}>发送</button></div><p className="mt-2 text-xs text-slate-500">Ctrl/⌘ + Enter 发送。</p></div></section>
-    </div>}
-    {error ? <p className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error}</p> : null}{busy ? <p className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-700">处理中，请稍等……</p> : null}
-  </div></main>;
+  // 映射字号的 CSS 类样式及其对应字体
+  const FONT_CLASSES = {
+    small: "text-xs md:text-sm",
+    base: "text-sm md:text-base",
+    large: "text-base md:text-lg",
+    huge: "text-lg md:text-xl",
+  };
+
+  // 全局的夜间模式/日间模式主题包
+  const themeBgClass = darkMode ? "bg-[#111827] text-slate-100" : "bg-[#fafaf9] text-[#1c1917]";
+  const cardBgClass = darkMode ? "bg-slate-900 border border-slate-800" : "bg-white ring-1 ring-black/5";
+  const selectBorderClass = darkMode ? "bg-slate-900 border border-slate-800 text-white" : "bg-white border text-[#1c1917]";
+  const inputBorderClass = darkMode ? "bg-slate-950 border border-slate-800 text-white placeholder-slate-700" : "bg-white border text-slate-900 placeholder-slate-400";
+  const tagBgClass = darkMode ? "bg-amber-950/40 text-amber-500 border border-amber-900" : "bg-amber-100/50 text-amber-900";
+  const btnActiveBg = darkMode ? "bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700" : "bg-slate-100 text-slate-800 border border-slate-200 hover:bg-slate-200";
+
+  return (
+    <>
+      {/* 导入开源高雅字体，如 Noto Serif SC 思源宋体使文字富有情感和叙事小说感 */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap');
+        .serif-story {
+          font-family: 'Noto Serif SC', 'Playfair Display', Georgia, serif;
+        }
+      ` }} />
+
+      <main className={`min-h-screen transition-colors duration-300 ${themeBgClass}`}>
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8">
+          
+          <header className={`rounded-3xl p-6 shadow-sm transition-colors duration-200 flex flex-col md:flex-row justify-between gap-4 items-start md:items-center ${cardBgClass}`}>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500">双用户同步 AI 育儿模拟器（精简全自动版）</p>
+              <h1 className="mt-2 text-2xl md:text-3.5xl font-extrabold tracking-tight">从怀孕开始的共同养育故事</h1>
+              <p className="mt-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">双亲A/B同步联机；孕期2回合，生产独立，1年=4回合。自动化行动感应，指标秒级即时反应。</p>
+            </div>
+            
+            {/* UI 控制面板：主题切换 ＆ 字号微调 */}
+            <div className={`p-4 rounded-2xl flex flex-wrap gap-4 items-center ${darkMode ? 'bg-slate-950/60' : 'bg-stone-50'}`}>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">字号大小</span>
+                <div className="flex bg-slate-300/30 rounded-lg p-0.5 text-xs font-semibold">
+                  {(["small", "base", "large", "huge"] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      onClick={() => setFontSize(sz)}
+                      className={`px-3 py-1 rounded-md transition-all ${fontSize === sz ? "bg-amber-600 text-white shadow-xs" : "opacity-70 hover:opacity-100"}`}
+                    >
+                      {sz === "small" ? "小" : sz === "base" ? "中" : sz === "large" ? "大" : "特"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">视界风格</span>
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-800"
+                >
+                  {darkMode ? "☀️ 日出晨曦" : "🌙 繁星深夜"}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {!payload ? (
+            <section className="grid gap-6 md:grid-cols-2">
+              <div className={`rounded-3xl p-6 shadow-sm ${cardBgClass}`}>
+                <h2 className="text-xl font-black">创建星系 / 房间</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">创建者自动绑定为双亲A。</p>
+                <input className={`mt-5 w-full rounded-2xl px-4 py-3.5 text-sm font-medium ${inputBorderClass}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="注册您好听的昵称" />
+                <button className="mt-5 w-full rounded-2xl bg-amber-600 hover:bg-amber-500 px-4 py-4 font-bold text-white transition-all disabled:opacity-50" disabled={busy} onClick={createRoom}>创造我的新模拟</button>
+              </div>
+              
+              <div className={`rounded-3xl p-6 shadow-sm ${cardBgClass}`}>
+                <h2 className="text-xl font-black">载入 / 联接房间</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">第二位玩家自动绑定为双亲B。</p>
+                <input className={`mt-5 w-full rounded-2xl px-4 py-3.5 text-sm uppercase font-mono tracking-widest ${inputBorderClass}`} value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="输入 6 位星系指令码" />
+                <input className={`mt-3.5 w-full rounded-2xl px-4 py-3.5 text-sm font-medium ${inputBorderClass}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="您的联体昵称" />
+                <button className="mt-5 w-full rounded-2xl bg-slate-900 dark:bg-slate-100 dark:text-slate-900 hover:opacity-90 px-4 py-4 font-bold text-white transition-all disabled:opacity-50" disabled={busy} onClick={joinRoom}>加入同一平行世界</button>
+              </div>
+            </section>
+          ) : (
+            <div className="grid gap-6 xl:grid-cols-[390px_1fr]">
+              <aside className="flex flex-col gap-6">
+                
+                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                  <div className="flex justify-between gap-4 items-start">
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">时间维状态</p>
+                      <h2 className="mt-1 text-lg font-black">{statusLine}</h2>
+                      <p className="mt-2.5 inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-bold shadow-xs bg-amber-500/10 text-amber-500 border border-amber-500/20">正在扮演：{currentRole}</p>
+                    </div>
+                    <button className="text-xs underline text-slate-400 hover:text-slate-200" onClick={leaveLocalRoom}>注销返回</button>
+                  </div>
+                  <div className={`mt-4 rounded-2xl p-4 text-xs font-medium space-y-1.5 ${tagBgClass}`}>{payload.players.map((p) => <p key={p.id}>🛡️ {roleLabel(p.role)}：{p.display_name}{p.id === playerId ? "（你）" : ""}</p>)}</div>
+                </section>
+
+                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                  <h2 className="text-lg font-black flex items-center gap-1">📊 数值和属性动态反馈</h2>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">生命指标在[0 - 100]中实时推移；安全和金钱越高，家庭和孩子健康越好。</p>
+                  
+                  <h3 className="mt-5 mb-2.5 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">孩子 / 孕育状态</h3>
+                  <div className="space-y-4">{Object.entries(payload.state.child).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} />)}</div>
+                  
+                  <h3 className="mt-6 mb-2.5 text-xs font-bold text-slate-400 uppercase tracking-widest border-l-2 border-amber-500 pl-2">家庭 / 现实根底</h3>
+                  <div className="space-y-4">{Object.entries(payload.state.family).map(([k, v]) => <StatBar key={k} label={statNames[k] || k} value={v} dangerHigh={k === "pressure"} />)}</div>
+                </section>
+
+                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                  <div className="flex justify-between items-center"><h2 className="text-lg font-black">时空存档谱</h2><button className="text-xs font-bold underline" disabled={busy} onClick={() => refreshSaves()}>刷新历史</button></div>
+                  <button className="mt-4 w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 py-3.5 font-bold text-white shadow-sm transition-all disabled:opacity-50" disabled={busy} onClick={createSave}>保存当前时空片</button>
+                  <div className="mt-4 space-y-2.5 max-h-48 overflow-y-auto">{saves.length ? saves.map((s) => <div key={s.id} className={`rounded-2xl p-3 border ${darkMode ? "bg-slate-950/60 border-slate-800" : "bg-slate-50 border-slate-100"}`}><div className="flex justify-between gap-3 items-center"><div><p className="font-bold text-xs">{s.name}</p><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">第{s.turn}回｜{savePhaseLabel(s)}｜{formatDateTime(s.createdAt)}</p></div><button className="rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[10px] font-bold text-emerald-600 hover:opacity-85 ring-1 ring-emerald-600/30" disabled={busy} onClick={() => loadSave(s)}>读取</button></div></div>) : <p className="p-3 text-xs text-slate-500 text-center">空荡荡的，暂时没有跨维度备份。</p>}</div>
+                </section>
+
+                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                  <h2 className="text-lg font-black">气泡客制色彩</h2>
+                  <p className="mt-1 text-[10px] text-slate-400">在游玩中随行客制化自适应对立感：</p>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs font-semibold">{[["我的泡泡", myBubbleColor, setMyBubbleColor], ["对方泡泡", otherBubbleColor, setOtherBubbleColor], ["系统泡泡", systemBubbleColor, setSystemBubbleColor], ["AI旁白", aiBubbleColor, setAiBubbleColor]].map(([label, value, setter]) => <label key={String(label)} className="flex flex-col gap-1.5 bg-slate-400/5 p-2 rounded-xl border border-slate-600/5"><span>{String(label)}</span><input className="h-6 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={String(value)} onChange={(e) => (setter as (v: string) => void)(e.target.value)} /></label>)}</div>
+                </section>
+
+                <section className={`rounded-3xl p-5 shadow-sm ${cardBgClass}`}>
+                  <h2 className="text-lg font-black">设定双亲初始基石</h2>
+                  <p className="mt-1 text-xs text-slate-500">此规则会时刻约束 AI 的生成因果。</p>
+                  <div className="mt-4 grid gap-3"><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentAName} onChange={(e) => setDirty(setParentAName, e.target.value)} placeholder="双亲A的爱意名字" /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentAJob} onChange={(e) => setDirty(setParentAJob, e.target.value)} placeholder="双亲A扮演职业" /><select className={`rounded-2xl px-4 py-3 text-xs border ${selectBorderClass}`} value={parentAPregnancyRole} onChange={(e) => { setDirty(setParentAPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentBPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentA} onChange={(e) => setDirty(setParentA, e.target.value)} placeholder="对双亲A的细微或不为人知描述..." /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentBName} onChange={(e) => setDirty(setParentBName, e.target.value)} placeholder="双亲B的爱意名字" /><input className={`rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentBJob} onChange={(e) => setDirty(setParentBJob, e.target.value)} placeholder="双亲B扮演职业" /><select className={`rounded-2xl px-4 py-3 text-xs border ${selectBorderClass}`} value={parentBPregnancyRole} onChange={(e) => { setDirty(setParentBPregnancyRole, e.target.value); if (e.target.value === "怀孕方") setParentAPregnancyRole("非怀孕方"); }}><option>怀孕方</option><option>非怀孕方</option></select><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={parentB} onChange={(e) => setDirty(setParentB, e.target.value)} placeholder="对双亲B的描述补充..." /><textarea className={`h-20 rounded-2xl px-4 py-3 text-xs border ${inputBorderClass}`} value={world} onChange={(e) => setDirty(setWorld, e.target.value)} placeholder="关于家庭、世界观或整体宏大设定..." /></div>
+                  <button className="mt-4 w-full rounded-2xl bg-amber-600 px-4 py-3 font-semibold text-white text-xs disabled:opacity-50 hover:bg-amber-500" disabled={busy} onClick={saveSetup}>保存初始化设定</button>
+                </section>
+              </aside>
+
+              <section className={`rounded-3xl shadow-sm flex flex-col ${cardBgClass}`}>
+                
+                <div className="border-b border-slate-300/10 p-5 flex flex-col sm:flex-row justify-between gap-3 items-start sm:items-center">
+                  <div>
+                    <h2 className="text-lg font-black flex items-center gap-1.5">📖 天演故事与交融日记</h2>
+                    <p className="mt-1 text-xs text-slate-500">时空连结码：<span className="font-mono font-bold text-amber-500 select-all">{payload.room.room_code}</span>。AI输出段会自动转译成各流线气泡。</p>
+                  </div>
+                </div>
+
+                {/* 核心气泡滚动中心：自适应字号 ＆ 开源高雅思源宋体注入 */}
+                <div className={`flex-1 h-[680px] overflow-y-auto p-5 space-y-4 serif-story ${FONT_CLASSES[fontSize]}`}>
+                  {payload.messages.map((m) => {
+                    const isMyMsg = m.player_id === playerId;
+                    const bubbleBg = bg(m);
+                    const bubbleText = textContrastColor(bubbleBg);
+                    const bubbleAuthor = isMyMsg ? "我" : m.author;
+                    return (
+                      <article
+                        key={m.id}
+                        className={`rounded-2xl p-4.5 max-w-[88%] leading-relaxed shadow-xs transition-transform ${isMyMsg ? "ml-auto border border-blue-600/10 hover:-translate-x-0.5" : "mr-auto border border-slate-500/10 hover:translate-x-0.5"}`}
+                        style={{ backgroundColor: bubbleBg, color: bubbleText }}
+                      >
+                        <div className="mb-1.5 flex justify-between gap-3 text-[10px] opacity-75 font-semibold">
+                          <span>👤 {bubbleAuthor}</span>
+                          <span>{formatTime(m.created_at)}</span>
+                        </div>
+                        <p className="whitespace-pre-wrap tracking-wide leading-relaxed">{m.content}</p>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t border-slate-300/10 p-5">
+                  <div className={`mb-4 rounded-2xl p-4 ${darkMode ? "bg-slate-950/60" : "bg-amber-500/5"}`}>
+                    <p className="mb-2 text-xs font-bold tracking-widest text-amber-500 uppercase">🎯 决策命运指南</p>
+                    <div className="flex flex-wrap gap-2.5">
+                      {["A", "B", "C", "D"].map((c) => (
+                        <button
+                          key={c}
+                          className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-4 py-2 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer"
+                          disabled={busy}
+                          onClick={() => sendActionAndAdvance(c)}
+                        >
+                          实行行动 {c}
+                        </button>
+                      ))}
+                      <button
+                        className="rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 px-4 py-2 text-xs font-bold text-amber-500 hover:bg-amber-500/10 shadow-xs cursor-pointer"
+                        disabled={busy}
+                        onClick={() => {
+                          const custom = window.prompt("请输入双亲自定义衍生神谕/行动：");
+                          if (custom?.trim()) sendActionAndAdvance(`自定义行动：${custom.trim()}`);
+                        }}
+                      >
+                        ✍️ 自定义决定
+                      </button>
+                    </div>
+                    <p className="mt-3 text-[10px] text-slate-400 leading-relaxed">
+                      💡 提示：输入您的看法在输入框中与伴侣交流。两神一齐在当前年份表达、实行完行动后，回合将被全自动完美结账，系统将自动发起新的纪元危机事件。
+                    </p>
+                  </div>
+
+                  <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-300/10 pb-4">
+                    {["开始游戏", "根据对话内容推进剧情", "查看状态"].map((cmd) => (
+                      <button
+                        key={cmd}
+                        className={`rounded-full px-4.5 py-2 text-xs font-bold select-none cursor-pointer transition-all ${btnActiveBg}`}
+                        disabled={busy}
+                        onClick={() => sendMessage(cmd)}
+                      >
+                        ⚙️ {cmd}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2.5 items-end">
+                    <textarea
+                      className={`h-22 flex-1 rounded-2xl px-4 py-3.5 text-xs font-medium resize-none tracking-wide focus:outline-none focus:ring-1 focus:ring-amber-500 ${inputBorderClass}`}
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      placeholder={`以 ${currentRole} 的高能意识输入您的回复，点击回车发送。按 Ctrl/⌘ + Enter 提交快速应命。`}
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMessage(); } }}
+                    />
+                    <button className="h-22 w-28 rounded-2xl bg-amber-600 hover:bg-amber-500 font-bold text-xs text-white shadow-md flex items-center justify-center transition-all enabled:active:scale-95 disabled:opacity-50" disabled={busy} onClick={() => sendMessage()}>
+                      🚀 传达应命
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-500 select-none">提示：按下 Ctrl/⌘ + Enter 可实现快捷应命发送。</p>
+                </div>
+              </section>
+            </div>
+          )}
+          
+          {error ? <p className="rounded-2xl bg-red-900/10 border border-red-500/20 px-4 py-3.5 text-xs font-semibold text-red-500">{error}</p> : null}
+          {busy ? (
+            <div className="fixed bottom-6 right-6 z-50 rounded-3xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-4 text-xs font-bold flex items-center gap-3 shadow-xl border border-white/10 dark:border-slate-300/25 animate-bounce">
+              <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span>正在连结量子AI进行历史推演和多色气泡着色中……</span>
+            </div>
+          ) : null}
+        </div>
+      </main>
+    </>
+  );
 }
